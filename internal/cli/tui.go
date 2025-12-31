@@ -24,6 +24,7 @@ type listContext string
 
 const (
 	stateMenu tuiState = iota
+	stateWeekView
 	stateTodayTasks
 	stateAgendaDetails
 	stateListSelect
@@ -31,6 +32,7 @@ const (
 	stateNewTaskList
 	stateTaskForm
 	stateConfirmDelete
+	stateCalendarSelect
 )
 
 const (
@@ -41,6 +43,7 @@ const (
 const (
 	listCtxToday listContext = "today"
 	listCtxList  listContext = "list"
+	listCtxWeek  listContext = "week"
 )
 
 var (
@@ -98,16 +101,25 @@ func (t taskItem) FilterValue() string { return t.TitleVal }
 type tuiModel struct {
 	app *App
 
-	state      tuiState
-	menu       list.Model
-	listSelect list.Model
-	tasksList  list.Model
-	viewport   viewport.Model
+	state          tuiState
+	menu           list.Model
+	listSelect     list.Model
+	tasksList      list.Model
+	viewport       viewport.Model
+	calendarSelect list.Model
 
 	listName string
 	listCtx  listContext
 	showAll  bool
 	status   string
+
+	weekData         weekData
+	weekFocus        weekFocus
+	weekDayIndex     int
+	weekBacklogIndex int
+	weekEventIndex   int
+	weekLoading      bool
+	calendarLoading  bool
 
 	confirmMsg  string
 	confirmTask taskItem
@@ -124,6 +136,7 @@ type tuiModel struct {
 func startTUI(app *App) error {
 	menu := list.New([]list.Item{
 		menuItem("Today"),
+		menuItem("Week"),
 		menuItem("Lists"),
 		menuItem("New Task"),
 		menuItem("Quit"),
@@ -136,12 +149,13 @@ func startTUI(app *App) error {
 	menu = styleList(menu)
 
 	model := tuiModel{
-		app:        app,
-		state:      stateMenu,
-		menu:       menu,
-		listSelect: styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
-		tasksList:  styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
-		listCtx:    listCtxList,
+		app:            app,
+		state:          stateMenu,
+		menu:           menu,
+		listSelect:     styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
+		tasksList:      styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
+		calendarSelect: list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		listCtx:        listCtxList,
 	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
@@ -161,6 +175,7 @@ func (m *tuiModel) setSizes() {
 	m.tasksList.SetSize(m.winW-4, m.winH-8)
 	m.viewport.Width = m.winW - 4
 	m.viewport.Height = m.winH - 8
+	m.calendarSelect.SetSize(m.winW-4, m.winH-6)
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -182,6 +197,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.state {
 			case stateMenu:
 				return m, tea.Quit
+			case stateWeekView:
+				m.state = stateMenu
+				return m, nil
 			case stateListTasks:
 				m.state = stateListSelect
 				return m, nil
@@ -191,8 +209,23 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateAgendaDetails:
 				m.state = stateTodayTasks
 				return m, nil
-			case stateNewTaskList, stateTaskForm, stateConfirmDelete:
+			case stateCalendarSelect:
+				m.state = stateWeekView
+				return m, nil
+			case stateNewTaskList:
 				m.state = stateMenu
+				return m, nil
+			case stateTaskForm, stateConfirmDelete:
+				switch m.listCtx {
+				case listCtxToday:
+					m.state = stateTodayTasks
+				case listCtxList:
+					m.state = stateListTasks
+				case listCtxWeek:
+					m.state = stateWeekView
+				default:
+					m.state = stateMenu
+				}
 				return m, nil
 			default:
 				m.state = stateMenu
@@ -202,7 +235,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.(type) {
-	case okMsg, errMsg:
+	case okMsg, errMsg, weekDataMsg, calendarListMsg:
 		return m.handleMessage(msg)
 	}
 
@@ -219,6 +252,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showAll = false
 				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
 				m.setSizes()
+			case "Week":
+				m.state = stateWeekView
+				m.listCtx = listCtxWeek
+				m.weekFocus = focusGrid
+				m.weekDayIndex = -1
+				m.weekEventIndex = -1
+				m.weekBacklogIndex = -1
+				m.weekLoading = true
+				return m, m.loadWeekDataCmd(m.app.Now)
 			case "Lists":
 				m.state = stateListSelect
 				m.listSelect = newListSelect(m.app)
@@ -232,6 +274,46 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, cmd
+	case stateWeekView:
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "tab":
+				if m.weekFocus == focusBacklog {
+					m.weekFocus = focusGrid
+				} else {
+					m.weekFocus = focusBacklog
+				}
+				return m, nil
+			case "left", "h":
+				return m, m.shiftWeekDay(-1)
+			case "right", "l":
+				return m, m.shiftWeekDay(1)
+			case "up", "k":
+				m.moveWeekSelection(-1)
+				return m, nil
+			case "down", "j":
+				m.moveWeekSelection(1)
+				return m, nil
+			case " ":
+				return m, m.completeWeekTaskCmd()
+			case "e", "enter":
+				return m, m.editWeekTaskCmd()
+			case "d":
+				m.prepareDeleteWeekTask()
+				return m, nil
+			case "n":
+				m.startNewTaskFromWeek()
+				return m, nil
+			case "c":
+				m.state = stateCalendarSelect
+				m.calendarLoading = true
+				return m, m.loadCalendarListCmd()
+			case "r":
+				m.weekLoading = true
+				return m, m.loadWeekDataCmd(m.weekAnchor())
+			}
+		}
+		return m, nil
 	case stateTodayTasks:
 		var cmd tea.Cmd
 		m.tasksList, cmd = m.tasksList.Update(msg)
@@ -370,15 +452,31 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y":
 				return m, m.deleteTaskCmd()
 			case "n":
-				if m.listCtx == listCtxToday {
+				switch m.listCtx {
+				case listCtxToday:
 					m.state = stateTodayTasks
-				} else {
+				case listCtxWeek:
+					m.state = stateWeekView
+				default:
 					m.state = stateListTasks
 				}
 				return m, nil
 			}
 		}
 		return m, nil
+	case stateCalendarSelect:
+		var cmd tea.Cmd
+		m.calendarSelect, cmd = m.calendarSelect.Update(msg)
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case " ":
+				m.toggleCalendarSelection()
+				return m, nil
+			case "enter":
+				return m, m.saveCalendarSelectionCmd()
+			}
+		}
+		return m, cmd
 	default:
 		return m, nil
 	}
@@ -394,6 +492,8 @@ func (m tuiModel) View() string {
 	switch m.state {
 	case stateMenu:
 		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
+	case stateWeekView:
+		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray("tab: switch • ←/→ day • ↑/↓ item • space: done • e: edit • d: delete • n: new • c: calendars • r: refresh • esc: back") + status)
 	case stateTodayTasks:
 		return padding.Render(renderHeader("Today") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • a: agenda • esc: back") + status)
 	case stateAgendaDetails:
@@ -408,6 +508,11 @@ func (m tuiModel) View() string {
 		return padding.Render(renderForm(m.formInputs, m.formStep, m.formMode) + status)
 	case stateConfirmDelete:
 		return padding.Render(renderHeader("Confirm delete") + "\n\n" + m.confirmMsg + "\n\n" + gray("y: delete • n: cancel"))
+	case stateCalendarSelect:
+		if m.calendarLoading {
+			return padding.Render(renderHeader("Calendars") + "\n\n" + "Loading calendars..." + status)
+		}
+		return padding.Render(renderHeader("View calendars") + "\n\n" + m.calendarSelect.View() + "\n\n" + gray("space: toggle • enter: save • esc: back") + status)
 	default:
 		return ""
 	}
@@ -655,21 +760,35 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 		m.status = msg.msg
 		switch m.state {
 		case stateTaskForm:
-			if m.listCtx == listCtxToday {
+			switch m.listCtx {
+			case listCtxToday:
 				m.state = stateTodayTasks
 				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
-			} else if m.listName != "" {
-				items, _ := buildListItems(m.app, m.listName, m.showAll)
-				m.state = stateListTasks
-				m.tasksList = newTasksListModel(items, m.listName)
-			} else {
-				m.state = stateMenu
+			case listCtxWeek:
+				m.state = stateWeekView
+				m.weekLoading = true
+				m.setSizes()
+				return m, m.loadWeekDataCmd(m.weekAnchor())
+			default:
+				if m.listName != "" {
+					items, _ := buildListItems(m.app, m.listName, m.showAll)
+					m.state = stateListTasks
+					m.tasksList = newTasksListModel(items, m.listName)
+				} else {
+					m.state = stateMenu
+				}
 			}
 		case stateConfirmDelete:
-			if m.listCtx == listCtxToday {
+			switch m.listCtx {
+			case listCtxToday:
 				m.state = stateTodayTasks
 				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
-			} else {
+			case listCtxWeek:
+				m.state = stateWeekView
+				m.weekLoading = true
+				m.setSizes()
+				return m, m.loadWeekDataCmd(m.weekAnchor())
+			default:
 				items, _ := buildListItems(m.app, m.listName, m.showAll)
 				m.state = stateListTasks
 				m.tasksList = newTasksListModel(items, m.listName)
@@ -679,12 +798,37 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			m.tasksList = newTasksListModel(items, m.listName)
 		case stateTodayTasks:
 			m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
+		case stateCalendarSelect:
+			m.state = stateWeekView
+			m.weekLoading = true
+			m.setSizes()
+			return m, m.loadWeekDataCmd(m.weekAnchor())
 		default:
 			m.state = stateMenu
 		}
 	case errMsg:
 		m.status = msg.err.Error()
+		if m.state == stateWeekView {
+			m.weekLoading = false
+		}
+		if m.state == stateCalendarSelect {
+			m.calendarLoading = false
+		}
 		// keep state
+	case weekDataMsg:
+		m.weekData = msg.data
+		m.weekLoading = false
+		if m.weekDayIndex < 0 || m.weekDayIndex > 6 {
+			idx := dayIndex(msg.data.Days, m.app.Now)
+			if idx < 0 {
+				idx = 0
+			}
+			m.weekDayIndex = idx
+		}
+		m.ensureWeekSelection()
+	case calendarListMsg:
+		m.calendarLoading = false
+		m.calendarSelect = newCalendarSelect(msg.items, m.app.Config.ViewCalendars)
 	}
 	m.setSizes()
 	return m, nil
@@ -793,6 +937,10 @@ func (m *tuiModel) completeSelectedTaskCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	return m.completeTaskCmd(task)
+}
+
+func (m *tuiModel) completeTaskCmd(task taskItem) tea.Cmd {
 	return func() tea.Msg {
 		err := markTaskDone(m.app, task.ListID, task.ID, true)
 		if err != nil {
@@ -807,6 +955,24 @@ func (m *tuiModel) editSelectedTaskCmd() tea.Cmd {
 	if !ok {
 		return nil
 	}
+	return m.beginEditTask(task)
+}
+
+func (m *tuiModel) prepareDelete() {
+	task, ok := m.selectedTask()
+	if !ok {
+		return
+	}
+	m.prepareDeleteTask(task)
+}
+
+func (m *tuiModel) prepareDeleteTask(task taskItem) {
+	m.confirmTask = task
+	m.confirmMsg = fmt.Sprintf("Delete '%s'? (event will be removed)", task.TitleVal)
+	m.state = stateConfirmDelete
+}
+
+func (m *tuiModel) beginEditTask(task taskItem) tea.Cmd {
 	m.editTask = task
 	m.formMode = formEdit
 	m.state = stateTaskForm
@@ -828,16 +994,6 @@ func (m *tuiModel) editSelectedTaskCmd() tea.Cmd {
 	}
 	m.formInputs[1].Focus()
 	return nil
-}
-
-func (m *tuiModel) prepareDelete() {
-	task, ok := m.selectedTask()
-	if !ok {
-		return
-	}
-	m.confirmTask = task
-	m.confirmMsg = fmt.Sprintf("Delete '%s'? (event will be removed)", task.TitleVal)
-	m.state = stateConfirmDelete
 }
 
 func (m *tuiModel) deleteTaskCmd() tea.Cmd {

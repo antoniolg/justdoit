@@ -17,12 +17,13 @@ import (
 )
 
 type App struct {
-	Config   *config.Config
-	Tasks    *tasks.Client
-	Calendar *calendar.Client
-	Sync     *sync.Wrapper
-	Location *time.Location
-	Now      time.Time
+	Config     *config.Config
+	ConfigPath string
+	Tasks      *tasks.Client
+	Calendar   *calendar.Client
+	Sync       *sync.Wrapper
+	Location   *time.Location
+	Now        time.Time
 }
 
 func NewRootCmd() *cobra.Command {
@@ -99,11 +100,19 @@ func initApp(cmd *cobra.Command) (*App, error) {
 		CalendarID: cfg.CalendarID,
 	}
 	return &App{
-		Config:   cfg,
-		Tasks:    tasksClient,
-		Calendar: calendarClient,
-		Sync:     syncer,
-		Location: loc,
-		Now:      time.Now().In(loc),
+		Config:     cfg,
+		ConfigPath: cfgPath,
+		Tasks:      tasksClient,
+		Calendar:   calendarClient,
+		Sync:       syncer,
+		Location:   loc,
+		Now:        time.Now().In(loc),
 	}, nil
+}
+
+func (a *App) SaveConfig() error {
+	if a == nil || a.Config == nil || a.ConfigPath == "" {
+		return fmt.Errorf("config is not initialized")
+	}
+	return config.Save(a.ConfigPath, a.Config)
 }

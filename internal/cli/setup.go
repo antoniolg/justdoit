@@ -112,7 +112,11 @@ func setupCalendars(app *App, cfg *config.Config) error {
 	if !ok {
 		return fmt.Errorf("invalid calendar selection")
 	}
+	prev := cfg.CalendarID
 	cfg.CalendarID = choice.Item.ID
+	if len(cfg.ViewCalendars) == 0 || (len(cfg.ViewCalendars) == 1 && cfg.ViewCalendars[0] == prev) {
+		cfg.ViewCalendars = []string{cfg.CalendarID}
+	}
 	return nil
 }
 

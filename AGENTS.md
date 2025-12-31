@@ -16,6 +16,7 @@
 - `make reset`: removes local config/token for a fresh setup.
 - `make tidy`: runs `go mod tidy`.
 - Direct build: `go build -o /opt/homebrew/bin/justdoit ./cmd/justdoit`.
+- Deployment: after any change, rebuild the global binary so `justdoit` in PATH is up to date (`go build -o /opt/homebrew/bin/justdoit ./cmd/justdoit`), then `hash -r` if needed.
 
 ## Coding Style & Naming Conventions
 - Use `gofmt` for all Go files (`gofmt -w cmd internal`).

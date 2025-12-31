@@ -1,5 +1,8 @@
 {
   "calendar_id": "primary",
+  "view_calendars": [
+    "primary"
+  ],
   "default_list": "Inbox",
   "workday_start": "09:00",
   "workday_end": "18:00",
