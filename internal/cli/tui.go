@@ -66,6 +66,7 @@ func startTUI(app *App) error {
 	menu.SetShowStatusBar(false)
 	menu.SetFilteringEnabled(false)
 	menu.SetShowHelp(true)
+	menu.KeyMap.Quit.SetEnabled(false)
 
 	model := tuiModel{
 		app:        app,
@@ -101,8 +102,23 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			return m, tea.Quit
+		case "q":
+			if m.state == stateMenu {
+				return m, tea.Quit
+			}
+		case "esc", "backspace":
+			switch m.state {
+			case stateMenu:
+				return m, tea.Quit
+			case stateListTasks:
+				m.state = stateListSelect
+				return m, nil
+			default:
+				m.state = stateMenu
+				return m, nil
+			}
 		}
 	}
 
@@ -138,12 +154,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateToday:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "esc", "backspace":
-				m.state = stateMenu
-			}
-		}
 		return m, cmd
 	case stateListSelect:
 		var cmd tea.Cmd
@@ -155,17 +165,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport = viewport.New(m.viewport.Width, m.viewport.Height)
 			m.viewport.SetContent(buildListText(m.app, m.listName, "", false))
 		}
-		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "esc" {
-			m.state = stateMenu
-		}
 		return m, cmd
 	case stateListTasks:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
-			case "esc", "backspace":
-				m.state = stateListSelect
 			case "n":
 				m.state = stateNewTaskForm
 				m.formInputs = newTaskInputs()
@@ -187,17 +192,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.formInputs[0].SetValue(m.listName)
 			m.formInputs[1].Focus()
 		}
-		if key, ok := msg.(tea.KeyMsg); ok && key.String() == "esc" {
-			m.state = stateMenu
-		}
 		return m, cmd
 	case stateNewTaskForm:
 		var cmd tea.Cmd
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
-			case "esc":
-				m.state = stateMenu
-				return m, nil
 			case "enter":
 				if m.formStep < len(m.formInputs)-1 {
 					m.formInputs[m.formStep].Blur()
@@ -258,6 +257,7 @@ func newListSelect(app *App) list.Model {
 	model.SetShowStatusBar(false)
 	model.SetFilteringEnabled(true)
 	model.SetShowHelp(true)
+	model.KeyMap.Quit.SetEnabled(false)
 	return model
 }
 
