@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+
+# Build artifacts
+/bin/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build/test
+*.test
+*.out
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+
+# Env files
+.env
