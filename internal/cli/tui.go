@@ -43,6 +43,11 @@ const (
 	listCtxList  listContext = "list"
 )
 
+var (
+	colorAccent = lipgloss.Color("69")
+	colorMuted  = lipgloss.Color("241")
+)
+
 type menuItem string
 
 func (m menuItem) Title() string       { return string(m) }
@@ -68,7 +73,7 @@ type taskItem struct {
 
 func (t taskItem) Title() string {
 	if t.IsHeader {
-		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("241")).Render(t.TitleVal)
+		return lipgloss.NewStyle().Bold(true).Foreground(colorMuted).Render(t.TitleVal)
 	}
 	return t.TitleVal
 }
@@ -99,10 +104,11 @@ type tuiModel struct {
 	tasksList  list.Model
 	viewport   viewport.Model
 
-	listName    string
-	listCtx     listContext
-	showAll     bool
-	status      string
+	listName string
+	listCtx  listContext
+	showAll  bool
+	status   string
+
 	confirmMsg  string
 	confirmTask taskItem
 
@@ -127,13 +133,14 @@ func startTUI(app *App) error {
 	menu.SetFilteringEnabled(false)
 	menu.SetShowHelp(true)
 	menu.KeyMap.Quit.SetEnabled(false)
+	menu = styleList(menu)
 
 	model := tuiModel{
 		app:        app,
 		state:      stateMenu,
 		menu:       menu,
-		listSelect: list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
-		tasksList:  list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		listSelect: styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
+		tasksList:  styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
 		listCtx:    listCtxList,
 	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
@@ -171,7 +178,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == stateMenu {
 				return m, tea.Quit
 			}
-		case "esc", "backspace":
+		case "esc":
 			switch m.state {
 			case stateMenu:
 				return m, tea.Quit
@@ -210,7 +217,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateTodayTasks
 				m.listCtx = listCtxToday
 				m.showAll = false
-				m.tasksList = newTasksListModel(m.app, buildTodayItems(m.app), "Today")
+				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
 				m.setSizes()
 			case "Lists":
 				m.state = stateListSelect
@@ -263,7 +270,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateMenu
 				return m, nil
 			}
-			m.tasksList = newTasksListModel(m.app, items, m.listName)
+			m.tasksList = newTasksListModel(items, m.listName)
 			m.setSizes()
 		}
 		return m, cmd
@@ -280,7 +287,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateMenu
 					return m, nil
 				}
-				m.tasksList = newTasksListModel(m.app, items, m.listName)
+				m.tasksList = newTasksListModel(items, m.listName)
 				m.setSizes()
 			case " ":
 				return m, m.completeSelectedTaskCmd()
@@ -317,6 +324,31 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
+			case "tab":
+				m.formInputs[m.formStep].Blur()
+				m.formStep = (m.formStep + 1) % len(m.formInputs)
+				m.formInputs[m.formStep].Focus()
+				return m, nil
+			case "shift+tab", "backtab":
+				m.formInputs[m.formStep].Blur()
+				m.formStep = (m.formStep - 1 + len(m.formInputs)) % len(m.formInputs)
+				m.formInputs[m.formStep].Focus()
+				return m, nil
+			case "ctrl+u":
+				m.formInputs[m.formStep].SetValue("")
+				m.formInputs[m.formStep].SetCursor(0)
+				return m, nil
+			case "ctrl+k":
+				pos := m.formInputs[m.formStep].Position()
+				if pos < 0 {
+					pos = 0
+				}
+				val := m.formInputs[m.formStep].Value()
+				if pos > len(val) {
+					pos = len(val)
+				}
+				m.formInputs[m.formStep].SetValue(val[:pos])
+				return m, nil
 			case "enter":
 				if m.formStep < len(m.formInputs)-1 {
 					m.formInputs[m.formStep].Blur()
@@ -338,9 +370,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y":
 				return m, m.deleteTaskCmd()
 			case "n":
-				m.state = stateListTasks
 				if m.listCtx == listCtxToday {
 					m.state = stateTodayTasks
+				} else {
+					m.state = stateListTasks
 				}
 				return m, nil
 			}
@@ -353,7 +386,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m tuiModel) View() string {
 	padding := lipgloss.NewStyle().Padding(1, 2)
-	header := lipgloss.NewStyle().Bold(true).Render("justdoit")
 	status := ""
 	if m.status != "" {
 		status = "\n\n" + gray(m.status)
@@ -361,24 +393,65 @@ func (m tuiModel) View() string {
 
 	switch m.state {
 	case stateMenu:
-		return padding.Render(header + "\n\n" + m.menu.View() + status)
+		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
 	case stateTodayTasks:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Today") + "\n\n" + m.tasksList.View() + "\n\n" + gray("space: done • e: edit • d: delete • a: agenda • esc: back") + status)
+		return padding.Render(renderHeader("Today") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • a: agenda • esc: back") + status)
 	case stateAgendaDetails:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
+		return padding.Render(renderHeader("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Select a list") + "\n\n" + m.listSelect.View() + status)
+		return padding.Render(renderHeader("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render(m.listName) + "\n\n" + m.tasksList.View() + "\n\n" + gray("space: done • e: edit • d: delete • n: new • a: all • esc: back") + status)
+		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new • a: all • esc: back") + status)
 	case stateNewTaskList:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Choose list") + "\n\n" + m.listSelect.View() + status)
+		return padding.Render(renderHeader("Choose list") + "\n\n" + m.listSelect.View() + status)
 	case stateTaskForm:
 		return padding.Render(renderForm(m.formInputs, m.formStep, m.formMode) + status)
 	case stateConfirmDelete:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Confirm") + "\n\n" + m.confirmMsg + "\n\n" + gray("y: delete • n: cancel"))
+		return padding.Render(renderHeader("Confirm delete") + "\n\n" + m.confirmMsg + "\n\n" + gray("y: delete • n: cancel"))
 	default:
 		return ""
 	}
+}
+
+func renderHeader(title string) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render("justdoit") + " · " + lipgloss.NewStyle().Bold(true).Render(title)
+}
+
+func (m *tuiModel) splitPane(left, right string) string {
+	width := m.winW - 4
+	if width < 60 {
+		return left
+	}
+	leftWidth := width / 2
+	if leftWidth < 32 {
+		leftWidth = 32
+	}
+	rightWidth := width - leftWidth - 2
+
+	m.tasksList.SetSize(leftWidth, m.winH-8)
+	leftPane := lipgloss.NewStyle().Width(leftWidth).Render(left)
+	rightPane := lipgloss.NewStyle().Width(rightWidth).Render(right)
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+}
+
+func (m *tuiModel) detailsView() string {
+	task, ok := m.selectedTask()
+	if !ok {
+		return gray("Select a task to see details")
+	}
+	dueText := "None"
+	if task.HasDue {
+		dueText = task.Due.Format("2006-01-02")
+	}
+	lines := []string{
+		lipgloss.NewStyle().Bold(true).Render(task.TitleVal),
+		"",
+		fmt.Sprintf("List: %s", task.ListName),
+		fmt.Sprintf("Section: %s", task.Section),
+		fmt.Sprintf("Due: %s", dueText),
+		fmt.Sprintf("ID: %s", task.ID),
+	}
+	return strings.Join(lines, "\n")
 }
 
 func newListSelect(app *App) list.Model {
@@ -399,16 +472,35 @@ func newListSelect(app *App) list.Model {
 	model.SetFilteringEnabled(true)
 	model.SetShowHelp(true)
 	model.KeyMap.Quit.SetEnabled(false)
-	return model
+	return styleList(model)
 }
 
-func newTasksListModel(app *App, items []list.Item, title string) list.Model {
+func newTasksListModel(items []list.Item, title string) list.Model {
 	model := list.New(items, list.NewDefaultDelegate(), 0, 0)
 	model.Title = title
 	model.SetShowStatusBar(false)
 	model.SetFilteringEnabled(true)
-	model.SetShowHelp(true)
+	model.SetShowHelp(false)
 	model.KeyMap.Quit.SetEnabled(false)
+	return styleList(model)
+}
+
+func styleList(model list.Model) list.Model {
+	styles := model.Styles
+	styles.Title = styles.Title.Foreground(colorAccent).Bold(true)
+	styles.FilterPrompt = styles.FilterPrompt.Foreground(colorMuted)
+	styles.FilterCursor = styles.FilterCursor.Foreground(colorAccent)
+	styles.StatusBar = styles.StatusBar.Foreground(colorMuted)
+	styles.PaginationStyle = styles.PaginationStyle.Foreground(colorMuted)
+	styles.HelpStyle = styles.HelpStyle.Foreground(colorMuted)
+	model.Styles = styles
+
+	delegate := list.NewDefaultDelegate()
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(colorAccent).Bold(true)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(colorMuted)
+	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(colorMuted)
+	model.SetDelegate(delegate)
+
 	return model
 }
 
@@ -452,7 +544,7 @@ func renderForm(inputs []textinput.Model, step int, mode formMode) string {
 		b.WriteString(fmt.Sprintf("%s %s: %s\n", cursor, labels[i], input.View()))
 	}
 	b.WriteString("\n")
-	b.WriteString(gray("enter: next • esc: cancel"))
+	b.WriteString(gray("tab/shift+tab: navigate • enter: save • esc: cancel • ctrl+u: clear"))
 	return b.String()
 }
 
@@ -535,7 +627,7 @@ func (m tuiModel) updateTaskCmd() tea.Cmd {
 
 		params := UpdateParams{
 			Title:      title,
-			HasTitle:   title != "",
+			HasTitle:   true,
 			Notes:      notes,
 			HasNotes:   true,
 			Section:    section,
@@ -561,23 +653,38 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case okMsg:
 		m.status = msg.msg
-		if m.state == stateTaskForm {
+		switch m.state {
+		case stateTaskForm:
 			if m.listCtx == listCtxToday {
 				m.state = stateTodayTasks
-				m.tasksList = newTasksListModel(m.app, buildTodayItems(m.app), "Today")
+				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
 			} else if m.listName != "" {
 				items, _ := buildListItems(m.app, m.listName, m.showAll)
 				m.state = stateListTasks
-				m.tasksList = newTasksListModel(m.app, items, m.listName)
+				m.tasksList = newTasksListModel(items, m.listName)
 			} else {
 				m.state = stateMenu
 			}
-		} else {
+		case stateConfirmDelete:
+			if m.listCtx == listCtxToday {
+				m.state = stateTodayTasks
+				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
+			} else {
+				items, _ := buildListItems(m.app, m.listName, m.showAll)
+				m.state = stateListTasks
+				m.tasksList = newTasksListModel(items, m.listName)
+			}
+		case stateListTasks:
+			items, _ := buildListItems(m.app, m.listName, m.showAll)
+			m.tasksList = newTasksListModel(items, m.listName)
+		case stateTodayTasks:
+			m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
+		default:
 			m.state = stateMenu
 		}
 	case errMsg:
 		m.status = msg.err.Error()
-		m.state = stateMenu
+		// keep state
 	}
 	m.setSizes()
 	return m, nil
@@ -711,7 +818,6 @@ func (m *tuiModel) editSelectedTaskCmd() tea.Cmd {
 	if task.HasDue {
 		m.formInputs[3].SetValue(task.Due.Format("2006-01-02"))
 	}
-	// Try to prefill time and notes
 	if t, err := m.app.Tasks.GetTask(task.ListID, task.ID); err == nil {
 		m.formInputs[5].SetValue(stripMetadataNotes(t.Notes))
 		if event, ok, _ := findLinkedEvent(m.app, t); ok && event != nil {
