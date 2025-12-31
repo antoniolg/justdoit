@@ -33,6 +33,15 @@ This uses arrow‑key selection, hides IDs, and will:
 
 ## Usage
 
+## TUI (default)
+
+Running `justdoit` with no args launches an interactive terminal UI (Today, Lists, New Task).
+
+```bash
+justdoit
+```
+
+
 ```bash
 # build
 

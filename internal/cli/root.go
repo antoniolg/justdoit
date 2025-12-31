@@ -29,6 +29,13 @@ func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "justdoit",
 		Short: "CLI for time-blocking with Google Tasks + Calendar",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := initApp(cmd)
+			if err != nil {
+				return err
+			}
+			return startTUI(app)
+		},
 	}
 	cmd.PersistentFlags().String("config", "", "Path to config.json (defaults to ~/.config/justdoit/config.json)")
 	cmd.PersistentFlags().String("credentials", "", "Path to OAuth credentials.json (defaults to ~/.config/justdoit/credentials.json)")

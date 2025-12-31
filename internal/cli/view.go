@@ -50,49 +50,68 @@ func newViewCmd() *cobra.Command {
 }
 
 func viewDay(app *App, day time.Time) error {
-	dayStart, dayEnd, err := agenda.DayBounds(day, app.Config.WorkdayStart, app.Config.WorkdayEnd, app.Location)
+	text, err := buildDayTextWithError(app, day)
 	if err != nil {
 		return err
+	}
+	fmt.Println(text)
+	return nil
+}
+
+func buildDayText(app *App, day time.Time) string {
+	text, err := buildDayTextWithError(app, day)
+	if err != nil {
+		return err.Error()
+	}
+	return text
+}
+
+func buildDayTextWithError(app *App, day time.Time) (string, error) {
+	dayStart, dayEnd, err := agenda.DayBounds(day, app.Config.WorkdayStart, app.Config.WorkdayEnd, app.Location)
+	if err != nil {
+		return "", err
 	}
 	events, err := app.Calendar.ListEvents(app.Config.CalendarID, dayStart.Format(time.RFC3339), dayEnd.Format(time.RFC3339))
 	if err != nil {
-		return err
+		return "", err
 	}
 	tasksToday, err := collectTasks(app, day)
 	if err != nil {
-		return err
+		return "", err
 	}
 	free := agenda.FreeSlots(events, dayStart, dayEnd)
 
-	fmt.Printf("Agenda for %s\n", day.Format("2006-01-02"))
-	fmt.Println("\nCalendar events:")
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Agenda for %s\n", day.Format("2006-01-02")))
+	b.WriteString("\nCalendar events:\n")
 	if len(events) == 0 {
-		fmt.Println("- (none)")
+		b.WriteString("- (none)\n")
 	} else {
 		for _, e := range events {
-			printEvent(e, app.Location)
+			b.WriteString(renderEvent(e, app.Location))
 		}
 	}
 
-	fmt.Println("\nTasks:")
+	b.WriteString("\nTasks:\n")
 	if len(tasksToday) == 0 {
-		fmt.Println("- (none)")
+		b.WriteString("- (none)\n")
 	} else {
 		sort.Slice(tasksToday, func(i, j int) bool { return tasksToday[i].Title < tasksToday[j].Title })
 		for _, t := range tasksToday {
-			fmt.Printf("- [%s] %s (%s)\n", t.List, t.Title, t.ID)
+			b.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", t.List, t.Title, t.ID))
 		}
 	}
 
-	fmt.Println("\nFree slots:")
+	b.WriteString("\nFree slots:\n")
 	if len(free) == 0 {
-		fmt.Println("- (none)")
+		b.WriteString("- (none)\n")
 	} else {
 		for _, slot := range free {
-			fmt.Printf("- %s - %s\n", slot.Start.Format("15:04"), slot.End.Format("15:04"))
+			b.WriteString(fmt.Sprintf("- %s - %s\n", slot.Start.Format("15:04"), slot.End.Format("15:04")))
 		}
 	}
-	return nil
+
+	return strings.TrimSpace(b.String()), nil
 }
 
 func parseDateRange(dateStr string, app *App) (time.Time, time.Time, error) {
@@ -155,28 +174,27 @@ func sameDay(a, b time.Time) bool {
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
-func printEvent(e *calendar.Event, loc *time.Location) {
+func renderEvent(e *calendar.Event, loc *time.Location) string {
 	if e.Start == nil || e.End == nil {
-		fmt.Printf("- %s\n", e.Summary)
-		return
+		return fmt.Sprintf("- %s\n", e.Summary)
 	}
 	if e.Start.DateTime != "" {
 		start, err := time.Parse(time.RFC3339, e.Start.DateTime)
 		if err != nil {
-			fmt.Printf("- %s\n", e.Summary)
-			return
+			return fmt.Sprintf("- %s\n", e.Summary)
 		}
 		end, err := time.Parse(time.RFC3339, e.End.DateTime)
 		if err != nil {
-			fmt.Printf("- %s\n", e.Summary)
-			return
+			return fmt.Sprintf("- %s\n", e.Summary)
 		}
-		fmt.Printf("- %s - %s %s\n", start.In(loc).Format("15:04"), end.In(loc).Format("15:04"), e.Summary)
-		return
+		return fmt.Sprintf("- %s - %s %s\n", start.In(loc).Format("15:04"), end.In(loc).Format("15:04"), e.Summary)
 	}
 	if e.Start.Date != "" {
-		fmt.Printf("- All-day %s\n", e.Summary)
-		return
+		return fmt.Sprintf("- All-day %s\n", e.Summary)
 	}
-	fmt.Printf("- %s\n", e.Summary)
+	return fmt.Sprintf("- %s\n", e.Summary)
+}
+
+func printEvent(e *calendar.Event, loc *time.Location) {
+	fmt.Print(renderEvent(e, loc))
 }

@@ -132,6 +132,6 @@ func printTasks(tasks []taskRow) {
 		if t.HasDue {
 			dueText = fmt.Sprintf(" (due %s)", t.Due.Format("2006-01-02"))
 		}
-		fmt.Printf("- [%s] %s%s\n", t.ID, t.Title, dueText)
+		fmt.Printf("- %s %s%s\n", t.Title, gray("["+t.ID+"]"), dueText)
 	}
 }
