@@ -1,0 +1,11 @@
+{
+  "calendar_id": "primary",
+  "default_list": "Inbox",
+  "workday_start": "09:00",
+  "workday_end": "18:00",
+  "timezone": "",
+  "lists": {
+    "Inbox": "YOUR_INBOX_LIST_ID",
+    "Trabajo": "YOUR_WORK_LIST_ID"
+  }
+}
