@@ -51,6 +51,8 @@ type tuiModel struct {
 
 	formInputs []textinput.Model
 	formStep   int
+	winW       int
+	winH       int
 }
 
 func startTUI(app *App) error {
@@ -66,9 +68,10 @@ func startTUI(app *App) error {
 	menu.SetShowHelp(true)
 
 	model := tuiModel{
-		app:   app,
-		state: stateMenu,
-		menu:  menu,
+		app:        app,
+		state:      stateMenu,
+		menu:       menu,
+		listSelect: list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
 	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
@@ -79,13 +82,22 @@ func (m tuiModel) Init() tea.Cmd {
 	return nil
 }
 
+func (m *tuiModel) setSizes() {
+	if m.winW == 0 || m.winH == 0 {
+		return
+	}
+	m.menu.SetSize(m.winW-4, m.winH-6)
+	m.listSelect.SetSize(m.winW-4, m.winH-6)
+	m.viewport.Width = m.winW - 4
+	m.viewport.Height = m.winH - 8
+}
+
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.menu.SetSize(msg.Width-4, msg.Height-6)
-		m.listSelect.SetSize(msg.Width-4, msg.Height-6)
-		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - 8
+		m.winW = msg.Width
+		m.winH = msg.Height
+		m.setSizes()
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -113,9 +125,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "Lists":
 				m.state = stateListSelect
 				m.listSelect = newListSelect(m.app)
+				m.setSizes()
 			case "New Task":
 				m.state = stateNewTaskList
 				m.listSelect = newListSelect(m.app)
+				m.setSizes()
 			case "Quit":
 				return m, tea.Quit
 			}
