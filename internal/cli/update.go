@@ -44,118 +44,31 @@ func newUpdateCmd() *cobra.Command {
 				newTitle = strings.Join(args[1:], " ")
 			}
 
-			task, err := app.Tasks.GetTask(listID, taskID)
+			params := UpdateParams{
+				Title:      newTitle,
+				HasTitle:   newTitle != "",
+				Notes:      notes,
+				HasNotes:   cmd.Flags().Changed("notes"),
+				Section:    section,
+				HasSection: cmd.Flags().Changed("section"),
+				Date:       dateStr,
+				HasDate:    cmd.Flags().Changed("date"),
+				Time:       timeStr,
+				HasTime:    cmd.Flags().Changed("time"),
+			}
+
+			result, err := updateTaskWithParams(app, listID, taskID, params)
 			if err != nil {
 				return err
 			}
 
-			if newTitle != "" {
-				task.Title = newTitle
-			}
-
-			if cmd.Flags().Changed("notes") {
-				task.Notes = mergeNotes(notes, task.Notes)
-			}
-
-			var (
-				event          *calendar.Event
-				eventExists    bool
-				newStart       *time.Time
-				newEnd         *time.Time
-				newDue         *time.Time
-				sectionChanged bool
-			)
-
-			if cmd.Flags().Changed("section") {
-				sectionName := strings.TrimSpace(section)
-				if sectionName == "" {
-					sectionName = "General"
-				}
-				sectionTask, err := ensureSectionTask(app, listID, sectionName)
-				if err != nil {
-					return err
-				}
-				if _, err := app.Tasks.MoveTask(listID, taskID, sectionTask.Id); err != nil {
-					return err
-				}
-				sectionChanged = true
-			}
-
-			if cmd.Flags().Changed("time") || cmd.Flags().Changed("date") || newTitle != "" {
-				event, eventExists, _ = findLinkedEvent(app, task)
-			}
-
-			if cmd.Flags().Changed("time") || cmd.Flags().Changed("date") {
-				baseDate := resolveBaseDate(app, task, event, dateStr)
-				if cmd.Flags().Changed("time") {
-					start, end, err := timeparse.ParseTimeRange(timeStr, baseDate, app.Now, app.Location)
-					if err != nil {
-						return err
-					}
-					newStart = &start
-					newEnd = &end
-					newDue = &end
-				} else if cmd.Flags().Changed("date") {
-					if baseDate.IsZero() {
-						return fmt.Errorf("invalid date")
-					}
-					endOfDay := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 23, 59, 0, 0, app.Location)
-					newDue = &endOfDay
-					if eventExists {
-						start, end := eventTimes(event, app.Location)
-						if !start.IsZero() && !end.IsZero() {
-							start = time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), start.Hour(), start.Minute(), 0, 0, app.Location)
-							end = time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), end.Hour(), end.Minute(), 0, 0, app.Location)
-							newStart = &start
-							newEnd = &end
-						}
-					}
-				}
-			}
-
-			if newDue != nil {
-				task.Due = newDue.Format(time.RFC3339)
-			}
-
-			if _, err := app.Tasks.UpdateTask(listID, task); err != nil {
-				return err
-			}
-
-			if newTitle != "" && eventExists && event != nil {
-				event.Summary = newTitle
-			}
-
-			if newStart != nil && newEnd != nil {
-				if eventExists && event != nil {
-					event.Start.DateTime = newStart.Format(time.RFC3339)
-					event.End.DateTime = newEnd.Format(time.RFC3339)
-					if _, err := app.Calendar.UpdateEvent(app.Config.CalendarID, event); err != nil {
-						return err
-					}
-				} else {
-					created, err := createLinkedEvent(app, task, newStart, newEnd)
-					if err != nil {
-						return err
-					}
-					updatedNotes := metadata.Append(task.Notes, sync.TaskEventIDKey, created.Id)
-					task.Notes = updatedNotes
-					if _, err := app.Tasks.UpdateTask(listID, task); err != nil {
-						return err
-					}
-				}
-			} else if eventExists && event != nil && newTitle != "" {
-				if _, err := app.Calendar.UpdateEvent(app.Config.CalendarID, event); err != nil {
-					return err
-				}
-			}
-
 			fmt.Println("✅ Task updated")
-			if sectionChanged {
+			if result.SectionChanged {
 				fmt.Println("📌 Section updated")
 			}
-			if newStart != nil {
+			if result.EventUpdated {
 				fmt.Println("📅 Event updated")
-			} else if newTitle != "" && eventExists {
+			} else if result.EventRenamed {
 				fmt.Println("📅 Event renamed")
 			}
 			return nil

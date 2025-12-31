@@ -6,9 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/api/tasks/v1"
 
-	"justdoit/internal/metadata"
 	"justdoit/internal/sync"
 	"justdoit/internal/timeparse"
 )
@@ -131,24 +129,4 @@ func buildRecurrence(every string) ([]string, error) {
 	}
 	rrule := fmt.Sprintf("RRULE:FREQ=%s", freq)
 	return []string{rrule}, nil
-}
-
-func ensureSectionTask(app *App, listID, section string) (*tasks.Task, error) {
-	items, err := app.Tasks.ListTasks(listID, false)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range items {
-		if item.Title != section {
-			continue
-		}
-		if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
-			return item, nil
-		}
-	}
-	task := &tasks.Task{
-		Title: section,
-		Notes: metadata.Append("", "justdoit_section", "1"),
-	}
-	return app.Tasks.CreateTask(listID, task)
 }

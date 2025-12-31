@@ -18,13 +18,29 @@ import (
 
 type tuiState int
 
+type formMode string
+
+type listContext string
+
 const (
 	stateMenu tuiState = iota
-	stateToday
+	stateTodayTasks
+	stateAgendaDetails
 	stateListSelect
 	stateListTasks
 	stateNewTaskList
-	stateNewTaskForm
+	stateTaskForm
+	stateConfirmDelete
+)
+
+const (
+	formNew  formMode = "new"
+	formEdit formMode = "edit"
+)
+
+const (
+	listCtxToday listContext = "today"
+	listCtxList  listContext = "list"
 )
 
 type menuItem string
@@ -39,20 +55,64 @@ func (l listItem) Title() string       { return string(l) }
 func (l listItem) Description() string { return "" }
 func (l listItem) FilterValue() string { return string(l) }
 
+type taskItem struct {
+	ID       string
+	TitleVal string
+	ListName string
+	ListID   string
+	Section  string
+	Due      time.Time
+	HasDue   bool
+	IsHeader bool
+}
+
+func (t taskItem) Title() string {
+	if t.IsHeader {
+		return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("241")).Render(t.TitleVal)
+	}
+	return t.TitleVal
+}
+
+func (t taskItem) Description() string {
+	if t.IsHeader {
+		return ""
+	}
+	dueText := ""
+	if t.HasDue {
+		dueText = fmt.Sprintf("due %s", t.Due.Format("2006-01-02"))
+	}
+	idText := gray("[" + t.ID + "]")
+	if dueText == "" {
+		return idText
+	}
+	return fmt.Sprintf("%s · %s", dueText, idText)
+}
+
+func (t taskItem) FilterValue() string { return t.TitleVal }
+
 type tuiModel struct {
-	app        *App
+	app *App
+
 	state      tuiState
 	menu       list.Model
 	listSelect list.Model
+	tasksList  list.Model
 	viewport   viewport.Model
 
-	listName string
-	status   string
+	listName    string
+	listCtx     listContext
+	showAll     bool
+	status      string
+	confirmMsg  string
+	confirmTask taskItem
 
 	formInputs []textinput.Model
 	formStep   int
-	winW       int
-	winH       int
+	formMode   formMode
+	editTask   taskItem
+
+	winW int
+	winH int
 }
 
 func startTUI(app *App) error {
@@ -73,6 +133,8 @@ func startTUI(app *App) error {
 		state:      stateMenu,
 		menu:       menu,
 		listSelect: list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		tasksList:  list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		listCtx:    listCtxList,
 	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
@@ -89,6 +151,7 @@ func (m *tuiModel) setSizes() {
 	}
 	m.menu.SetSize(m.winW-4, m.winH-6)
 	m.listSelect.SetSize(m.winW-4, m.winH-6)
+	m.tasksList.SetSize(m.winW-4, m.winH-8)
 	m.viewport.Width = m.winW - 4
 	m.viewport.Height = m.winH - 8
 }
@@ -115,6 +178,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateListTasks:
 				m.state = stateListSelect
 				return m, nil
+			case stateTodayTasks:
+				m.state = stateMenu
+				return m, nil
+			case stateAgendaDetails:
+				m.state = stateTodayTasks
+				return m, nil
+			case stateNewTaskList, stateTaskForm, stateConfirmDelete:
+				m.state = stateMenu
+				return m, nil
 			default:
 				m.state = stateMenu
 				return m, nil
@@ -135,9 +207,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selected := m.menu.SelectedItem().(menuItem)
 			switch string(selected) {
 			case "Today":
-				m.state = stateToday
-				m.viewport = viewport.New(m.viewport.Width, m.viewport.Height)
-				m.viewport.SetContent(buildDayText(m.app, time.Now().In(m.app.Location)))
+				m.state = stateTodayTasks
+				m.listCtx = listCtxToday
+				m.showAll = false
+				m.tasksList = newTasksListModel(m.app, buildTodayItems(m.app), "Today")
+				m.setSizes()
 			case "Lists":
 				m.state = stateListSelect
 				m.listSelect = newListSelect(m.app)
@@ -151,7 +225,26 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, cmd
-	case stateToday:
+	case stateTodayTasks:
+		var cmd tea.Cmd
+		m.tasksList, cmd = m.tasksList.Update(msg)
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "a":
+				m.state = stateAgendaDetails
+				m.viewport = viewport.New(m.viewport.Width, m.viewport.Height)
+				m.viewport.SetContent(buildDayText(m.app, time.Now().In(m.app.Location)))
+			case " ":
+				return m, m.completeSelectedTaskCmd()
+			case "e", "enter":
+				return m, m.editSelectedTaskCmd()
+			case "d":
+				m.prepareDelete()
+				return m, nil
+			}
+		}
+		return m, cmd
+	case stateAgendaDetails:
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
@@ -162,17 +255,43 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			selected := m.listSelect.SelectedItem().(listItem)
 			m.listName = string(selected)
 			m.state = stateListTasks
-			m.viewport = viewport.New(m.viewport.Width, m.viewport.Height)
-			m.viewport.SetContent(buildListText(m.app, m.listName, "", false))
+			m.listCtx = listCtxList
+			m.showAll = false
+			items, err := buildListItems(m.app, m.listName, m.showAll)
+			if err != nil {
+				m.status = err.Error()
+				m.state = stateMenu
+				return m, nil
+			}
+			m.tasksList = newTasksListModel(m.app, items, m.listName)
+			m.setSizes()
 		}
 		return m, cmd
 	case stateListTasks:
 		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
+		m.tasksList, cmd = m.tasksList.Update(msg)
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
+			case "a":
+				m.showAll = !m.showAll
+				items, err := buildListItems(m.app, m.listName, m.showAll)
+				if err != nil {
+					m.status = err.Error()
+					m.state = stateMenu
+					return m, nil
+				}
+				m.tasksList = newTasksListModel(m.app, items, m.listName)
+				m.setSizes()
+			case " ":
+				return m, m.completeSelectedTaskCmd()
+			case "e", "enter":
+				return m, m.editSelectedTaskCmd()
+			case "d":
+				m.prepareDelete()
+				return m, nil
 			case "n":
-				m.state = stateNewTaskForm
+				m.state = stateTaskForm
+				m.formMode = formNew
 				m.formInputs = newTaskInputs()
 				m.formStep = 1
 				m.formInputs[0].SetValue(m.listName)
@@ -186,14 +305,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if key, ok := msg.(tea.KeyMsg); ok && (key.String() == "enter" || key.String() == " ") {
 			selected := m.listSelect.SelectedItem().(listItem)
 			m.listName = string(selected)
-			m.state = stateNewTaskForm
+			m.state = stateTaskForm
+			m.formMode = formNew
 			m.formInputs = newTaskInputs()
 			m.formStep = 1
 			m.formInputs[0].SetValue(m.listName)
 			m.formInputs[1].Focus()
 		}
 		return m, cmd
-	case stateNewTaskForm:
+	case stateTaskForm:
 		var cmd tea.Cmd
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
@@ -204,11 +324,28 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.formInputs[m.formStep].Focus()
 					return m, nil
 				}
-				return m, m.createTaskCmd()
+				if m.formMode == formNew {
+					return m, m.createTaskCmd()
+				}
+				return m, m.updateTaskCmd()
 			}
 		}
 		m.formInputs[m.formStep], cmd = m.formInputs[m.formStep].Update(msg)
 		return m, cmd
+	case stateConfirmDelete:
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch strings.ToLower(key.String()) {
+			case "y":
+				return m, m.deleteTaskCmd()
+			case "n":
+				m.state = stateListTasks
+				if m.listCtx == listCtxToday {
+					m.state = stateTodayTasks
+				}
+				return m, nil
+			}
+		}
+		return m, nil
 	default:
 		return m, nil
 	}
@@ -225,16 +362,20 @@ func (m tuiModel) View() string {
 	switch m.state {
 	case stateMenu:
 		return padding.Render(header + "\n\n" + m.menu.View() + status)
-	case stateToday:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Today") + "\n\n" + m.viewport.View() + status)
+	case stateTodayTasks:
+		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Today") + "\n\n" + m.tasksList.View() + "\n\n" + gray("space: done • e: edit • d: delete • a: agenda • esc: back") + status)
+	case stateAgendaDetails:
+		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
 		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:
-		return padding.Render(lipgloss.NewStyle().Bold(true).Render(m.listName) + "\n\n" + m.viewport.View() + "\n\n" + gray("n: new task • esc: back") + status)
+		return padding.Render(lipgloss.NewStyle().Bold(true).Render(m.listName) + "\n\n" + m.tasksList.View() + "\n\n" + gray("space: done • e: edit • d: delete • n: new • a: all • esc: back") + status)
 	case stateNewTaskList:
 		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Choose list") + "\n\n" + m.listSelect.View() + status)
-	case stateNewTaskForm:
-		return padding.Render(renderForm(m.formInputs, m.formStep) + status)
+	case stateTaskForm:
+		return padding.Render(renderForm(m.formInputs, m.formStep, m.formMode) + status)
+	case stateConfirmDelete:
+		return padding.Render(lipgloss.NewStyle().Bold(true).Render("Confirm") + "\n\n" + m.confirmMsg + "\n\n" + gray("y: delete • n: cancel"))
 	default:
 		return ""
 	}
@@ -261,6 +402,16 @@ func newListSelect(app *App) list.Model {
 	return model
 }
 
+func newTasksListModel(app *App, items []list.Item, title string) list.Model {
+	model := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	model.Title = title
+	model.SetShowStatusBar(false)
+	model.SetFilteringEnabled(true)
+	model.SetShowHelp(true)
+	model.KeyMap.Quit.SetEnabled(false)
+	return model
+}
+
 func newTaskInputs() []textinput.Model {
 	listInput := textinput.New()
 	listInput.Placeholder = "List"
@@ -279,13 +430,20 @@ func newTaskInputs() []textinput.Model {
 	timeInput := textinput.New()
 	timeInput.Placeholder = "Time (e.g. 15:00-16:00 or 1h)"
 
-	return []textinput.Model{listInput, titleInput, sectionInput, dateInput, timeInput}
+	notesInput := textinput.New()
+	notesInput.Placeholder = "Notes"
+
+	return []textinput.Model{listInput, titleInput, sectionInput, dateInput, timeInput, notesInput}
 }
 
-func renderForm(inputs []textinput.Model, step int) string {
-	labels := []string{"List", "Title", "Section", "Date", "Time"}
+func renderForm(inputs []textinput.Model, step int, mode formMode) string {
+	labels := []string{"List", "Title", "Section", "Date", "Time", "Notes"}
 	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render("New Task") + "\n\n")
+	title := "New Task"
+	if mode == formEdit {
+		title = "Edit Task"
+	}
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render(title) + "\n\n")
 	for i, input := range inputs {
 		cursor := " "
 		if i == step {
@@ -345,7 +503,7 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 		input := sync.CreateInput{
 			ListID:    listID,
 			Title:     title,
-			Notes:     "",
+			Notes:     strings.TrimSpace(m.formInputs[5].Value()),
 			Due:       due,
 			TimeStart: start,
 			TimeEnd:   end,
@@ -359,6 +517,42 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 	}
 }
 
+func (m tuiModel) updateTaskCmd() tea.Cmd {
+	return func() tea.Msg {
+		listName := strings.TrimSpace(m.formInputs[0].Value())
+		if listName == "" {
+			listName = m.listName
+		}
+		listID, ok := m.app.Config.ListID(listName)
+		if !ok {
+			return errMsg{err: fmt.Errorf("unknown list: %s", listName)}
+		}
+		title := strings.TrimSpace(m.formInputs[1].Value())
+		section := strings.TrimSpace(m.formInputs[2].Value())
+		dateStr := strings.TrimSpace(m.formInputs[3].Value())
+		timeStr := strings.TrimSpace(m.formInputs[4].Value())
+		notes := strings.TrimSpace(m.formInputs[5].Value())
+
+		params := UpdateParams{
+			Title:      title,
+			HasTitle:   title != "",
+			Notes:      notes,
+			HasNotes:   true,
+			Section:    section,
+			HasSection: true,
+			Date:       dateStr,
+			HasDate:    dateStr != "",
+			Time:       timeStr,
+			HasTime:    timeStr != "",
+		}
+		_, err := updateTaskWithParams(m.app, listID, m.editTask.ID, params)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return okMsg{msg: "✅ Task updated"}
+	}
+}
+
 type okMsg struct{ msg string }
 
 type errMsg struct{ err error }
@@ -367,46 +561,99 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case okMsg:
 		m.status = msg.msg
-		m.state = stateMenu
+		if m.state == stateTaskForm {
+			if m.listCtx == listCtxToday {
+				m.state = stateTodayTasks
+				m.tasksList = newTasksListModel(m.app, buildTodayItems(m.app), "Today")
+			} else if m.listName != "" {
+				items, _ := buildListItems(m.app, m.listName, m.showAll)
+				m.state = stateListTasks
+				m.tasksList = newTasksListModel(m.app, items, m.listName)
+			} else {
+				m.state = stateMenu
+			}
+		} else {
+			m.state = stateMenu
+		}
 	case errMsg:
 		m.status = msg.err.Error()
 		m.state = stateMenu
 	}
+	m.setSizes()
 	return m, nil
 }
 
-func buildListText(app *App, listName, section string, all bool) string {
+func buildListItems(app *App, listName string, all bool) ([]list.Item, error) {
 	listID, ok := app.Config.ListID(listName)
 	if !ok {
-		return "unknown list"
+		return nil, fmt.Errorf("unknown list: %s", listName)
 	}
 	items, err := app.Tasks.ListTasksWithOptions(listID, all, all)
 	if err != nil {
-		return err.Error()
+		return nil, err
 	}
-	sections, order := groupTasksBySection(items, strings.TrimSpace(section))
-	if len(sections) == 0 {
-		return "(no tasks)"
-	}
-	var b strings.Builder
-	for _, name := range order {
-		tasks := sections[name]
-		if len(tasks) == 0 {
+	sections, order := groupTasksBySection(items, "")
+	result := []list.Item{}
+	for _, section := range order {
+		rows := sections[section]
+		if len(rows) == 0 {
 			continue
 		}
-		b.WriteString(name + "\n")
-		for _, t := range formatTasks(tasks) {
-			b.WriteString("- " + t + "\n")
+		result = append(result, taskItem{TitleVal: section, IsHeader: true})
+		for _, row := range orderTaskRows(rows) {
+			result = append(result, taskItem{
+				ID:       row.ID,
+				TitleVal: row.Title,
+				ListName: listName,
+				ListID:   listID,
+				Section:  section,
+				Due:      row.Due,
+				HasDue:   row.HasDue,
+			})
 		}
-		b.WriteString("\n")
 	}
-	return strings.TrimSpace(b.String())
+	return result, nil
 }
 
-func formatTasks(tasks []taskRow) []string {
-	due := make([]taskRow, 0, len(tasks))
-	noDue := make([]taskRow, 0, len(tasks))
-	for _, t := range tasks {
+func buildTodayItems(app *App) []list.Item {
+	items := []list.Item{}
+	tasksToday, err := collectTasks(app, time.Now().In(app.Location))
+	if err != nil {
+		return []list.Item{taskItem{TitleVal: err.Error(), IsHeader: true}}
+	}
+	byList := map[string][]taskView{}
+	order := []string{}
+	for _, t := range tasksToday {
+		if _, ok := byList[t.List]; !ok {
+			order = append(order, t.List)
+		}
+		byList[t.List] = append(byList[t.List], t)
+	}
+	for _, listName := range order {
+		listID, _ := app.Config.ListID(listName)
+		items = append(items, taskItem{TitleVal: listName, IsHeader: true})
+		rows := byList[listName]
+		for _, t := range rows {
+			items = append(items, taskItem{
+				ID:       t.ID,
+				TitleVal: t.Title,
+				ListName: listName,
+				ListID:   listID,
+				Due:      t.Due,
+				HasDue:   true,
+			})
+		}
+	}
+	if len(items) == 0 {
+		items = append(items, taskItem{TitleVal: "(no tasks due today)", IsHeader: true})
+	}
+	return items
+}
+
+func orderTaskRows(rows []taskRow) []taskRow {
+	due := make([]taskRow, 0, len(rows))
+	noDue := make([]taskRow, 0, len(rows))
+	for _, t := range rows {
 		if t.HasDue {
 			due = append(due, t)
 		} else {
@@ -419,14 +666,81 @@ func formatTasks(tasks []taskRow) []string {
 		}
 		return due[i].Due.Before(due[j].Due)
 	})
-	ordered := append(due, noDue...)
-	lines := make([]string, 0, len(ordered))
-	for _, t := range ordered {
-		dueText := ""
-		if t.HasDue {
-			dueText = fmt.Sprintf(" (due %s)", t.Due.Format("2006-01-02"))
-		}
-		lines = append(lines, fmt.Sprintf("%s [%s]%s", t.Title, t.ID, dueText))
+	return append(due, noDue...)
+}
+
+func (m *tuiModel) selectedTask() (taskItem, bool) {
+	item := m.tasksList.SelectedItem()
+	if item == nil {
+		return taskItem{}, false
 	}
-	return lines
+	task, ok := item.(taskItem)
+	if !ok || task.IsHeader {
+		return taskItem{}, false
+	}
+	return task, true
+}
+
+func (m *tuiModel) completeSelectedTaskCmd() tea.Cmd {
+	task, ok := m.selectedTask()
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		err := markTaskDone(m.app, task.ListID, task.ID, true)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return okMsg{msg: "✅ Task completed"}
+	}
+}
+
+func (m *tuiModel) editSelectedTaskCmd() tea.Cmd {
+	task, ok := m.selectedTask()
+	if !ok {
+		return nil
+	}
+	m.editTask = task
+	m.formMode = formEdit
+	m.state = stateTaskForm
+	m.formInputs = newTaskInputs()
+	m.formStep = 1
+	m.formInputs[0].SetValue(task.ListName)
+	m.formInputs[1].SetValue(task.TitleVal)
+	m.formInputs[2].SetValue(task.Section)
+	if task.HasDue {
+		m.formInputs[3].SetValue(task.Due.Format("2006-01-02"))
+	}
+	// Try to prefill time and notes
+	if t, err := m.app.Tasks.GetTask(task.ListID, task.ID); err == nil {
+		m.formInputs[5].SetValue(stripMetadataNotes(t.Notes))
+		if event, ok, _ := findLinkedEvent(m.app, t); ok && event != nil {
+			if start, end := eventTimes(event, m.app.Location); !start.IsZero() && !end.IsZero() {
+				m.formInputs[4].SetValue(fmt.Sprintf("%s-%s", start.Format("15:04"), end.Format("15:04")))
+			}
+		}
+	}
+	m.formInputs[1].Focus()
+	return nil
+}
+
+func (m *tuiModel) prepareDelete() {
+	task, ok := m.selectedTask()
+	if !ok {
+		return
+	}
+	m.confirmTask = task
+	m.confirmMsg = fmt.Sprintf("Delete '%s'? (event will be removed)", task.TitleVal)
+	m.state = stateConfirmDelete
+}
+
+func (m *tuiModel) deleteTaskCmd() tea.Cmd {
+	task := m.confirmTask
+	return func() tea.Msg {
+		err := deleteTask(m.app, task.ListID, task.ID, true)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return okMsg{msg: "🗑️ Task deleted"}
+	}
 }
