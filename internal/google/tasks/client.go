@@ -69,6 +69,24 @@ func (c *Client) ListTasks(listID string, showCompleted bool) ([]*tasks.Task, er
 	return resp.Items, nil
 }
 
+func (c *Client) MoveTask(listID, taskID, parentID string) (*tasks.Task, error) {
+	if listID == "" || taskID == "" {
+		return nil, fmt.Errorf("listID and taskID are required")
+	}
+	call := c.svc.Tasks.Move(listID, taskID)
+	if parentID != "" {
+		call.Parent(parentID)
+	}
+	return call.Do()
+}
+
+func (c *Client) DeleteTask(listID, taskID string) error {
+	if listID == "" || taskID == "" {
+		return fmt.Errorf("listID and taskID are required")
+	}
+	return c.svc.Tasks.Delete(listID, taskID).Do()
+}
+
 func (c *Client) FindTaskByTitle(listID, title string) (*tasks.Task, error) {
 	items, err := c.ListTasks(listID, false)
 	if err != nil {

@@ -78,13 +78,13 @@ func newAddCmd() *cobra.Command {
 				TimeEnd:    end,
 				ParentID:   sectionTask.Id,
 			}
-			task, event, err := app.Sync.Create(input)
+			_, event, err := app.Sync.Create(input)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Task created: %s\n", task.Id)
+			fmt.Println("✅ Task created")
 			if event != nil {
-				fmt.Printf("Event created: %s\n", event.Id)
+				fmt.Println("📅 Event created")
 			}
 			return nil
 		},

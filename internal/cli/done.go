@@ -35,7 +35,7 @@ func newDoneCmd() *cobra.Command {
 			if _, err := app.Tasks.CompleteTask(listID, taskID); err != nil {
 				return err
 			}
-			fmt.Printf("Task completed: %s\n", taskID)
+			fmt.Println("✅ Task completed")
 			if !markEvent {
 				return nil
 			}
@@ -68,7 +68,7 @@ func newDoneCmd() *cobra.Command {
 				if _, err := app.Calendar.UpdateEvent(app.Config.CalendarID, event); err != nil {
 					return err
 				}
-				fmt.Printf("Event marked: %s\n", event.Id)
+				fmt.Println("📅 Event marked")
 			}
 			return nil
 		},

@@ -39,6 +39,13 @@ func (c *Client) GetEvent(calendarID, eventID string) (*calendar.Event, error) {
 	return c.svc.Events.Get(calendarID, eventID).Do()
 }
 
+func (c *Client) DeleteEvent(calendarID, eventID string) error {
+	if calendarID == "" || eventID == "" {
+		return fmt.Errorf("calendarID and eventID are required")
+	}
+	return c.svc.Events.Delete(calendarID, eventID).Do()
+}
+
 func (c *Client) ListEvents(calendarID string, timeMin, timeMax string) ([]*calendar.Event, error) {
 	call := c.svc.Events.List(calendarID).
 		ShowDeleted(false).

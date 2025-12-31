@@ -57,6 +57,14 @@ go build -o justdoit ./cmd/justdoit
 # mark done and add ✅ prefix to calendar event
 ./justdoit done <TASK_ID>
 
+# update a task (title/date/time/section)
+./justdoit update <TASK_ID> "New title"
+./justdoit update <TASK_ID> --date "tomorrow" --time "16:00-17:00"
+./justdoit update <TASK_ID> --section "This week"
+
+# delete a task (and linked event)
+./justdoit delete <TASK_ID>
+
 # agenda view + free slots
 ./justdoit view
 
