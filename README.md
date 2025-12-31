@@ -75,6 +75,9 @@ go build -o justdoit ./cmd/justdoit
 
 # agenda view + free slots
 ./justdoit view
+# view another day or range
+./justdoit view --date "tomorrow"
+./justdoit view --date "2026-01-01..2026-01-07"
 
 # list calendars
 ./justdoit config calendars

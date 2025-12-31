@@ -3,12 +3,14 @@ package cli
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/api/calendar/v3"
 
 	"justdoit/internal/agenda"
+	"justdoit/internal/timeparse"
 )
 
 type taskView struct {
@@ -19,61 +21,108 @@ type taskView struct {
 }
 
 func newViewCmd() *cobra.Command {
+	var dateStr string
 	cmd := &cobra.Command{
 		Use:   "view",
-		Short: "Show today's agenda with free slots",
+		Short: "Show agenda with free slots",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := initApp(cmd)
 			if err != nil {
 				return err
 			}
-			day := app.Now
-			dayStart, dayEnd, err := agenda.DayBounds(day, app.Config.WorkdayStart, app.Config.WorkdayEnd, app.Location)
+			start, end, err := parseDateRange(dateStr, app)
 			if err != nil {
 				return err
 			}
-			events, err := app.Calendar.ListEvents(app.Config.CalendarID, dayStart.Format(time.RFC3339), dayEnd.Format(time.RFC3339))
-			if err != nil {
-				return err
-			}
-			tasksToday, err := collectTasks(app, day)
-			if err != nil {
-				return err
-			}
-			free := agenda.FreeSlots(events, dayStart, dayEnd)
-
-			fmt.Printf("Agenda for %s\n", day.Format("2006-01-02"))
-			fmt.Println("\nCalendar events:")
-			if len(events) == 0 {
-				fmt.Println("- (none)")
-			} else {
-				for _, e := range events {
-					printEvent(e, app.Location)
+			for day := start; !day.After(end); day = day.AddDate(0, 0, 1) {
+				if err := viewDay(app, day); err != nil {
+					return err
 				}
-			}
-
-			fmt.Println("\nTasks:")
-			if len(tasksToday) == 0 {
-				fmt.Println("- (none)")
-			} else {
-				sort.Slice(tasksToday, func(i, j int) bool { return tasksToday[i].Title < tasksToday[j].Title })
-				for _, t := range tasksToday {
-					fmt.Printf("- [%s] %s (%s)\n", t.List, t.Title, t.ID)
-				}
-			}
-
-			fmt.Println("\nFree slots:")
-			if len(free) == 0 {
-				fmt.Println("- (none)")
-			} else {
-				for _, slot := range free {
-					fmt.Printf("- %s - %s\n", slot.Start.Format("15:04"), slot.End.Format("15:04"))
+				if day.Before(end) {
+					fmt.Println()
 				}
 			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&dateStr, "date", "", "Date or range (e.g. 'today', 'tomorrow', '2026-01-02', '2026-01-01..2026-01-07')")
 	return cmd
+}
+
+func viewDay(app *App, day time.Time) error {
+	dayStart, dayEnd, err := agenda.DayBounds(day, app.Config.WorkdayStart, app.Config.WorkdayEnd, app.Location)
+	if err != nil {
+		return err
+	}
+	events, err := app.Calendar.ListEvents(app.Config.CalendarID, dayStart.Format(time.RFC3339), dayEnd.Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	tasksToday, err := collectTasks(app, day)
+	if err != nil {
+		return err
+	}
+	free := agenda.FreeSlots(events, dayStart, dayEnd)
+
+	fmt.Printf("Agenda for %s\n", day.Format("2006-01-02"))
+	fmt.Println("\nCalendar events:")
+	if len(events) == 0 {
+		fmt.Println("- (none)")
+	} else {
+		for _, e := range events {
+			printEvent(e, app.Location)
+		}
+	}
+
+	fmt.Println("\nTasks:")
+	if len(tasksToday) == 0 {
+		fmt.Println("- (none)")
+	} else {
+		sort.Slice(tasksToday, func(i, j int) bool { return tasksToday[i].Title < tasksToday[j].Title })
+		for _, t := range tasksToday {
+			fmt.Printf("- [%s] %s (%s)\n", t.List, t.Title, t.ID)
+		}
+	}
+
+	fmt.Println("\nFree slots:")
+	if len(free) == 0 {
+		fmt.Println("- (none)")
+	} else {
+		for _, slot := range free {
+			fmt.Printf("- %s - %s\n", slot.Start.Format("15:04"), slot.End.Format("15:04"))
+		}
+	}
+	return nil
+}
+
+func parseDateRange(dateStr string, app *App) (time.Time, time.Time, error) {
+	if strings.TrimSpace(dateStr) == "" {
+		day := time.Date(app.Now.Year(), app.Now.Month(), app.Now.Day(), 0, 0, 0, 0, app.Location)
+		return day, day, nil
+	}
+	parts := strings.Split(dateStr, "..")
+	if len(parts) == 2 {
+		start, err := timeparse.ParseDate(strings.TrimSpace(parts[0]), app.Now, app.Location)
+		if err != nil || start.IsZero() {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid start date")
+		}
+		end, err := timeparse.ParseDate(strings.TrimSpace(parts[1]), app.Now, app.Location)
+		if err != nil || end.IsZero() {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid end date")
+		}
+		if end.Before(start) {
+			return time.Time{}, time.Time{}, fmt.Errorf("end date before start date")
+		}
+		return start, end, nil
+	}
+	day, err := timeparse.ParseDate(dateStr, app.Now, app.Location)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if day.IsZero() {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid date")
+	}
+	return day, day, nil
 }
 
 func collectTasks(app *App, day time.Time) ([]taskView, error) {
