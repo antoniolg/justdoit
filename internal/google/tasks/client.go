@@ -60,8 +60,13 @@ func (c *Client) CompleteTask(listID, taskID string) (*tasks.Task, error) {
 }
 
 func (c *Client) ListTasks(listID string, showCompleted bool) ([]*tasks.Task, error) {
+	return c.ListTasksWithOptions(listID, showCompleted, false)
+}
+
+func (c *Client) ListTasksWithOptions(listID string, showCompleted, showHidden bool) ([]*tasks.Task, error) {
 	call := c.svc.Tasks.List(listID)
 	call.ShowCompleted(showCompleted)
+	call.ShowHidden(showHidden)
 	resp, err := call.Do()
 	if err != nil {
 		return nil, err

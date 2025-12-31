@@ -65,6 +65,14 @@ go build -o justdoit ./cmd/justdoit
 # delete a task (and linked event)
 ./justdoit delete <TASK_ID>
 
+
+# list tasks grouped by section
+./justdoit list --list "Work"
+# include completed/hidden
+./justdoit list --list "Work" --all
+# filter by section
+./justdoit list --list "Work" --section "This week"
+
 # agenda view + free slots
 ./justdoit view
 
