@@ -294,6 +294,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.shiftWeekDay(-1)
 			case "right", "l":
 				return m, m.shiftWeekDay(1)
+			case "[":
+				return m, m.shiftWeek(-1)
+			case "]":
+				return m, m.shiftWeek(1)
 			case "up", "k":
 				m.moveWeekSelection(-1)
 				return m, nil
@@ -321,6 +325,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "r":
 				m.weekRefreshing = true
 				return m, m.refreshWeekDataCmd(m.weekAnchor())
+			case "t":
+				m.weekDayIndex = -1
+				m.weekLoading = true
+				return m, m.loadWeekDataCmd(m.app.Now)
 			}
 		}
 		return m, nil
@@ -500,7 +508,7 @@ func (m tuiModel) View() string {
 	case stateMenu:
 		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
 	case stateWeekView:
-		hint := "tab: switch • ←/→ day • ↑/↓ item • space: done • e: edit • d: delete • n: new task • c: calendars • r: refresh • esc: back"
+		hint := "tab: switch • ←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • d: delete • n: new task • c: calendars • r: refresh • esc: back"
 		if m.weekRefreshing {
 			hint += " • refreshing…"
 		}

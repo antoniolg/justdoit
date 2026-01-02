@@ -202,6 +202,14 @@ func (m *tuiModel) shiftWeekDay(delta int) tea.Cmd {
 	return nil
 }
 
+func (m *tuiModel) shiftWeek(delta int) tea.Cmd {
+	if delta == 0 {
+		return nil
+	}
+	m.weekLoading = true
+	return m.loadWeekDataCmd(m.weekAnchor().AddDate(0, 0, 7*delta))
+}
+
 func (m *tuiModel) moveWeekSelection(delta int) {
 	if m.weekFocus == focusBacklog {
 		count := len(m.weekData.Backlog)
