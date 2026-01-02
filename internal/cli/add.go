@@ -77,6 +77,11 @@ func newAddCmd() *cobra.Command {
 				endOfDay := time.Date(baseDate.Year(), baseDate.Month(), baseDate.Day(), 23, 59, 0, 0, app.Location)
 				due = &endOfDay
 			}
+			if due == nil && len(recurrence) > 0 {
+				today := app.Now.In(app.Location)
+				endOfDay := time.Date(today.Year(), today.Month(), today.Day(), 23, 59, 0, 0, app.Location)
+				due = &endOfDay
+			}
 
 			input := sync.CreateInput{
 				ListID:     listID,
