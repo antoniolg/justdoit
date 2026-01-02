@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"google.golang.org/api/option"
 	"google.golang.org/api/tasks/v1"
@@ -56,17 +57,34 @@ func (c *Client) CompleteTask(listID, taskID string) (*tasks.Task, error) {
 		return nil, err
 	}
 	task.Status = "completed"
+	completed := time.Now().Format(time.RFC3339)
+	task.Completed = &completed
+	return c.svc.Tasks.Update(listID, taskID, task).Do()
+}
+
+func (c *Client) UncompleteTask(listID, taskID string) (*tasks.Task, error) {
+	task, err := c.GetTask(listID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	task.Status = "needsAction"
+	task.Completed = nil
+	task.NullFields = append(task.NullFields, "completed")
 	return c.svc.Tasks.Update(listID, taskID, task).Do()
 }
 
 func (c *Client) ListTasks(listID string, showCompleted bool) ([]*tasks.Task, error) {
-	return c.ListTasksWithOptions(listID, showCompleted, false)
+	return c.ListTasksWithOptions(listID, showCompleted, false, false, "")
 }
 
-func (c *Client) ListTasksWithOptions(listID string, showCompleted, showHidden bool) ([]*tasks.Task, error) {
+func (c *Client) ListTasksWithOptions(listID string, showCompleted, showHidden, showDeleted bool, updatedMin string) ([]*tasks.Task, error) {
 	call := c.svc.Tasks.List(listID)
 	call.ShowCompleted(showCompleted)
 	call.ShowHidden(showHidden)
+	call.ShowDeleted(showDeleted)
+	if updatedMin != "" {
+		call.UpdatedMin(updatedMin)
+	}
 	resp, err := call.Do()
 	if err != nil {
 		return nil, err

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"google.golang.org/api/calendar/v3"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 )
 
@@ -58,6 +59,46 @@ func (c *Client) ListEvents(calendarID string, timeMin, timeMax string) ([]*cale
 		return nil, err
 	}
 	return resp.Items, nil
+}
+
+func (c *Client) ListAllEvents(calendarID string) ([]*calendar.Event, string, error) {
+	call := c.svc.Events.List(calendarID).
+		ShowDeleted(true).
+		SingleEvents(true)
+	var all []*calendar.Event
+	for {
+		resp, err := call.Do()
+		if err != nil {
+			return nil, "", err
+		}
+		all = append(all, resp.Items...)
+		if resp.NextPageToken == "" {
+			return all, resp.NextSyncToken, nil
+		}
+		call.PageToken(resp.NextPageToken)
+	}
+}
+
+func (c *Client) SyncEvents(calendarID, syncToken string) ([]*calendar.Event, string, error) {
+	call := c.svc.Events.List(calendarID).
+		ShowDeleted(true).
+		SingleEvents(true).
+		SyncToken(syncToken)
+	var all []*calendar.Event
+	for {
+		resp, err := call.Do()
+		if err != nil {
+			if gErr, ok := err.(*googleapi.Error); ok && gErr.Code == 410 {
+				return nil, "", fmt.Errorf("sync token expired")
+			}
+			return nil, "", err
+		}
+		all = append(all, resp.Items...)
+		if resp.NextPageToken == "" {
+			return all, resp.NextSyncToken, nil
+		}
+		call.PageToken(resp.NextPageToken)
+	}
 }
 
 func (c *Client) ListCalendars() ([]*calendar.CalendarListEntry, error) {

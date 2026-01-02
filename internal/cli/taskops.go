@@ -159,24 +159,7 @@ func markTaskDone(app *App, listID, taskID string, markEvent bool) error {
 	if !markEvent {
 		return nil
 	}
-	if eventID, ok := sync.ExtractMetadata(task.Notes, sync.TaskEventIDKey); ok {
-		event, err := app.Calendar.GetEvent(app.Config.CalendarID, eventID)
-		if err != nil {
-			return nil
-		}
-		if !strings.HasPrefix(event.Summary, "✅ ") {
-			event.Summary = "✅ " + event.Summary
-			_, _ = app.Calendar.UpdateEvent(app.Config.CalendarID, event)
-		}
-		return nil
-	}
-	if event, err := app.Calendar.FindEventByTaskID(app.Config.CalendarID, taskID); err == nil {
-		if !strings.HasPrefix(event.Summary, "✅ ") {
-			event.Summary = "✅ " + event.Summary
-			_, _ = app.Calendar.UpdateEvent(app.Config.CalendarID, event)
-		}
-	}
-	return nil
+	return updateLinkedEventPrefix(app, task, true)
 }
 
 func deleteTask(app *App, listID, taskID string, deleteEvent bool) error {
@@ -192,6 +175,55 @@ func deleteTask(app *App, listID, taskID string, deleteEvent bool) error {
 		}
 	}
 	return app.Tasks.DeleteTask(listID, taskID)
+}
+
+func toggleTaskDone(app *App, listID, taskID string, markEvent bool) (bool, error) {
+	task, err := app.Tasks.GetTask(listID, taskID)
+	if err != nil {
+		return false, err
+	}
+	completed := strings.EqualFold(task.Status, "completed")
+	if completed {
+		if _, err := app.Tasks.UncompleteTask(listID, taskID); err != nil {
+			return false, err
+		}
+		if markEvent {
+			_ = updateLinkedEventPrefix(app, task, false)
+		}
+		return false, nil
+	}
+	if _, err := app.Tasks.CompleteTask(listID, taskID); err != nil {
+		return false, err
+	}
+	if markEvent {
+		_ = updateLinkedEventPrefix(app, task, true)
+	}
+	return true, nil
+}
+
+func updateLinkedEventPrefix(app *App, task *tasks.Task, completed bool) error {
+	event, ok, _ := findLinkedEvent(app, task)
+	if !ok || event == nil {
+		return nil
+	}
+	if completed {
+		if !strings.HasPrefix(event.Summary, "✅ ") {
+			event.Summary = "✅ " + event.Summary
+			_, _ = app.Calendar.UpdateEvent(app.Config.CalendarID, event)
+		}
+		return nil
+	}
+	if strings.HasPrefix(event.Summary, "✅ ") {
+		event.Summary = strings.TrimPrefix(event.Summary, "✅ ")
+		_, _ = app.Calendar.UpdateEvent(app.Config.CalendarID, event)
+		return nil
+	}
+	if strings.HasPrefix(event.Summary, "✅") {
+		event.Summary = strings.TrimPrefix(event.Summary, "✅")
+		event.Summary = strings.TrimSpace(event.Summary)
+		_, _ = app.Calendar.UpdateEvent(app.Config.CalendarID, event)
+	}
+	return nil
 }
 
 func stripMetadataNotes(notes string) string {

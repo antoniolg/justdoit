@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 
@@ -12,8 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"google.golang.org/api/calendar/v3"
-	"justdoit/internal/metadata"
-	"justdoit/internal/sync"
 	"justdoit/internal/timeparse"
 )
 
@@ -46,7 +43,8 @@ type weekData struct {
 }
 
 type weekDataMsg struct {
-	data weekData
+	data      weekData
+	fromCache bool
 }
 
 type calendarListMsg struct {
@@ -177,16 +175,6 @@ func (m *tuiModel) saveCalendarSelectionCmd() tea.Cmd {
 	}
 }
 
-func (m *tuiModel) loadWeekDataCmd(base time.Time) tea.Cmd {
-	return func() tea.Msg {
-		data, err := loadWeekData(m.app, base)
-		if err != nil {
-			return errMsg{err: err}
-		}
-		return weekDataMsg{data: data}
-	}
-}
-
 func (m *tuiModel) weekAnchor() time.Time {
 	if !m.weekData.WeekStart.IsZero() {
 		return m.weekData.WeekStart
@@ -268,6 +256,52 @@ func (m *tuiModel) selectedWeekEvent() (weekEvent, bool) {
 	return events[m.weekEventIndex], true
 }
 
+func (m *tuiModel) resolveTaskByID(taskID string) (taskItem, bool) {
+	if taskID == "" {
+		return taskItem{}, false
+	}
+	if task, ok := m.weekData.TaskByID[taskID]; ok {
+		return task, true
+	}
+	if m.weekData.TaskByID == nil {
+		m.weekData.TaskByID = map[string]taskItem{}
+	}
+	for listName, listID := range m.app.Config.Lists {
+		task, err := m.app.Tasks.GetTask(listID, taskID)
+		if err != nil {
+			continue
+		}
+		section := "General"
+		if task.Parent != "" {
+			if parent, err := m.app.Tasks.GetTask(listID, task.Parent); err == nil && parent != nil {
+				if title := strings.TrimSpace(parent.Title); title != "" {
+					section = title
+				}
+			}
+		}
+		var due time.Time
+		hasDue := false
+		if task.Due != "" {
+			if parsed, err := time.Parse(time.RFC3339, task.Due); err == nil {
+				due = parsed.In(m.app.Location)
+				hasDue = true
+			}
+		}
+		item := taskItem{
+			ID:       task.Id,
+			TitleVal: task.Title,
+			ListName: listName,
+			ListID:   listID,
+			Section:  section,
+			Due:      due,
+			HasDue:   hasDue,
+		}
+		m.weekData.TaskByID[taskID] = item
+		return item, true
+	}
+	return taskItem{}, false
+}
+
 func (m *tuiModel) selectedWeekTask() (taskItem, bool) {
 	if m.weekFocus == focusBacklog {
 		if len(m.weekData.Backlog) == 0 || m.weekBacklogIndex < 0 || m.weekBacklogIndex >= len(m.weekData.Backlog) {
@@ -279,11 +313,7 @@ func (m *tuiModel) selectedWeekTask() (taskItem, bool) {
 	if !ok || event.TaskID == "" {
 		return taskItem{}, false
 	}
-	task, ok := m.weekData.TaskByID[event.TaskID]
-	if !ok {
-		return taskItem{}, false
-	}
-	return task, true
+	return m.resolveTaskByID(event.TaskID)
 }
 
 func (m *tuiModel) completeWeekTaskCmd() tea.Cmd {
@@ -294,6 +324,42 @@ func (m *tuiModel) completeWeekTaskCmd() tea.Cmd {
 	}
 	m.listCtx = listCtxWeek
 	return m.completeTaskCmd(task)
+}
+
+func (m *tuiModel) applyTaskToggle(taskID string, completed bool) {
+	updateSummary := func(text string) string {
+		if completed {
+			if strings.HasPrefix(text, "✅ ") {
+				return text
+			}
+			return "✅ " + strings.TrimSpace(text)
+		}
+		if strings.HasPrefix(text, "✅ ") {
+			return strings.TrimPrefix(text, "✅ ")
+		}
+		if strings.HasPrefix(text, "✅") {
+			return strings.TrimSpace(strings.TrimPrefix(text, "✅"))
+		}
+		return text
+	}
+	for dayIdx, events := range m.weekData.Events {
+		for i := range events {
+			if events[i].TaskID != taskID {
+				continue
+			}
+			events[i].Summary = updateSummary(events[i].Summary)
+		}
+		m.weekData.Events[dayIdx] = events
+	}
+	for dayIdx, events := range m.weekData.AllDay {
+		for i := range events {
+			if events[i].TaskID != taskID {
+				continue
+			}
+			events[i].Summary = updateSummary(events[i].Summary)
+		}
+		m.weekData.AllDay[dayIdx] = events
+	}
 }
 
 func (m *tuiModel) editWeekTaskCmd() tea.Cmd {
@@ -334,7 +400,7 @@ func (m *tuiModel) startNewTaskFromWeek() {
 }
 
 func (m *tuiModel) weekView() string {
-	if m.weekLoading {
+	if m.weekLoading || len(m.weekData.Days) == 0 {
 		return "Loading week..."
 	}
 	width := m.winW - 4
@@ -522,7 +588,7 @@ func (m *tuiModel) renderWeekDetails(width int) string {
 				lines = append(lines, fmt.Sprintf("Calendar: %s", ev.CalendarName))
 			}
 			if ev.TaskID != "" {
-				if task, ok := m.weekData.TaskByID[ev.TaskID]; ok {
+				if task, ok := m.resolveTaskByID(ev.TaskID); ok {
 					lines = append(lines, fmt.Sprintf("List: %s", task.ListName))
 					lines = append(lines, fmt.Sprintf("Section: %s", task.Section))
 				}
@@ -542,156 +608,6 @@ func (m *tuiModel) renderWeekDetails(width int) string {
 		lines = append(lines, gray("Select a task or event to see details"))
 	}
 	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
-}
-
-func loadWeekData(app *App, base time.Time) (weekData, error) {
-	weekStart := weekStartDate(base.In(app.Location))
-	weekEnd := weekStart.AddDate(0, 0, 7)
-	days := make([]time.Time, 0, 7)
-	for i := 0; i < 7; i++ {
-		days = append(days, weekStart.AddDate(0, 0, i))
-	}
-
-	tasks, taskByID, err := collectTasksInRange(app, weekStart, weekEnd)
-	if err != nil {
-		return weekData{}, err
-	}
-
-	calendarNames := map[string]string{}
-	if items, err := app.Calendar.ListCalendars(); err == nil {
-		for _, cal := range items {
-			calendarNames[cal.Id] = cal.Summary
-		}
-	}
-
-	eventsByDay := map[int][]weekEvent{}
-	allDayByDay := map[int][]weekEvent{}
-	taskHasEvent := map[string]bool{}
-
-	for _, calendarID := range app.Config.ViewCalendars {
-		items, err := app.Calendar.ListEvents(calendarID, weekStart.Format(time.RFC3339), weekEnd.Format(time.RFC3339))
-		if err != nil {
-			return weekData{}, err
-		}
-		for _, e := range items {
-			start, end, allDay := eventTimesWithAllDay(e, app.Location)
-			if start.IsZero() || end.IsZero() {
-				continue
-			}
-			name := calendarNames[calendarID]
-			taskID, _ := sync.ExtractMetadata(e.Description, sync.EventTaskIDKey)
-			if taskID != "" {
-				taskHasEvent[taskID] = true
-			}
-			event := weekEvent{
-				Summary:      e.Summary,
-				CalendarID:   calendarID,
-				CalendarName: name,
-				TaskID:       taskID,
-				Start:        start,
-				End:          end,
-				AllDay:       allDay,
-			}
-			if allDay {
-				addAllDayEvent(allDayByDay, days, event)
-				continue
-			}
-			idx := dayIndex(days, start)
-			if idx < 0 || idx > 6 {
-				continue
-			}
-			event.StartSlot, event.EndSlot = slotRange(start, end)
-			eventsByDay[idx] = append(eventsByDay[idx], event)
-		}
-	}
-
-	for dayIdx, events := range eventsByDay {
-		sort.SliceStable(events, func(i, j int) bool {
-			return events[i].Start.Before(events[j].Start)
-		})
-		eventsByDay[dayIdx] = events
-	}
-
-	backlog := make([]taskItem, 0, len(tasks))
-	for _, task := range tasks {
-		if taskHasEvent[task.ID] {
-			continue
-		}
-		backlog = append(backlog, task)
-	}
-	sort.SliceStable(backlog, func(i, j int) bool {
-		if backlog[i].HasDue && backlog[j].HasDue {
-			if backlog[i].Due.Equal(backlog[j].Due) {
-				return backlog[i].TitleVal < backlog[j].TitleVal
-			}
-			return backlog[i].Due.Before(backlog[j].Due)
-		}
-		if backlog[i].HasDue {
-			return true
-		}
-		if backlog[j].HasDue {
-			return false
-		}
-		return backlog[i].TitleVal < backlog[j].TitleVal
-	})
-
-	return weekData{
-		WeekStart: weekStart,
-		Days:      days,
-		Events:    eventsByDay,
-		AllDay:    allDayByDay,
-		Backlog:   backlog,
-		TaskByID:  taskByID,
-	}, nil
-}
-
-func collectTasksInRange(app *App, start, end time.Time) ([]taskItem, map[string]taskItem, error) {
-	all := []taskItem{}
-	byID := map[string]taskItem{}
-	for name, listID := range app.Config.Lists {
-		items, err := app.Tasks.ListTasks(listID, false)
-		if err != nil {
-			return nil, nil, err
-		}
-		sections := map[string]string{}
-		for _, item := range items {
-			if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
-				sections[item.Id] = item.Title
-			}
-		}
-		for _, item := range items {
-			if item.Due == "" {
-				continue
-			}
-			if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
-				continue
-			}
-			due, err := time.Parse(time.RFC3339, item.Due)
-			if err != nil {
-				continue
-			}
-			due = due.In(app.Location)
-			if due.Before(start) || !due.Before(end) {
-				continue
-			}
-			section := "General"
-			if parent, ok := sections[item.Parent]; ok {
-				section = parent
-			}
-			task := taskItem{
-				ID:       item.Id,
-				TitleVal: item.Title,
-				ListName: name,
-				ListID:   listID,
-				Section:  section,
-				Due:      due,
-				HasDue:   true,
-			}
-			all = append(all, task)
-			byID[item.Id] = task
-		}
-	}
-	return all, byID, nil
 }
 
 func weekStartDate(day time.Time) time.Time {

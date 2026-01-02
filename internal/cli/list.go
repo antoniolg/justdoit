@@ -38,7 +38,7 @@ func newListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			items, err := app.Tasks.ListTasksWithOptions(listID, all, all)
+			items, err := app.Tasks.ListTasksWithOptions(listID, all, all, false, "")
 			if err != nil {
 				return err
 			}

@@ -19,6 +19,7 @@ import (
 type App struct {
 	Config     *config.Config
 	ConfigPath string
+	CachePath  string
 	Tasks      *tasks.Client
 	Calendar   *calendar.Client
 	Sync       *sync.Wrapper
@@ -81,6 +82,10 @@ func initApp(cmd *cobra.Command) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	cachePath, err := paths.CachePath()
+	if err != nil {
+		return nil, err
+	}
 	ctx := context.Background()
 	httpClient, err := auth.Client(ctx, credPath, tokenPath)
 	if err != nil {
@@ -102,6 +107,7 @@ func initApp(cmd *cobra.Command) (*App, error) {
 	return &App{
 		Config:     cfg,
 		ConfigPath: cfgPath,
+		CachePath:  cachePath,
 		Tasks:      tasksClient,
 		Calendar:   calendarClient,
 		Sync:       syncer,

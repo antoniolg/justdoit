@@ -10,6 +10,7 @@ const (
 	configFile = "config.json"
 	tokenFile  = "token.json"
 	credsFile  = "credentials.json"
+	cacheFile  = "cache.json"
 )
 
 func ConfigDir() (string, error) {
@@ -51,4 +52,12 @@ func CredentialsPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, credsFile), nil
+}
+
+func CachePath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, cacheFile), nil
 }
