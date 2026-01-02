@@ -30,7 +30,6 @@ const (
 	stateListSelect
 	stateListTasks
 	stateNewTaskList
-	stateQuickAdd
 	stateTaskForm
 	stateConfirmDelete
 	stateCalendarSelect
@@ -108,7 +107,6 @@ type tuiModel struct {
 	tasksList      list.Model
 	viewport       viewport.Model
 	calendarSelect list.Model
-	quickInput     textinput.Model
 
 	listName string
 	listCtx  listContext
@@ -123,8 +121,6 @@ type tuiModel struct {
 	weekLoading      bool
 	calendarLoading  bool
 	weekRefreshing   bool
-	quickHintList    string
-	quickHintDate    time.Time
 
 	confirmMsg  string
 	confirmTask taskItem
@@ -220,7 +216,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateNewTaskList:
 				m.state = stateMenu
 				return m, nil
-			case stateTaskForm, stateConfirmDelete, stateQuickAdd:
+			case stateTaskForm, stateConfirmDelete:
 				switch m.listCtx {
 				case listCtxToday:
 					m.state = stateTodayTasks
@@ -275,9 +271,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.listSelect = newListSelect(m.app)
 				m.setSizes()
 			case "New Task":
+				m.state = stateNewTaskList
 				m.listCtx = listCtxList
-				m.listName = ""
-				m.openQuickAdd("", time.Time{})
+				m.listSelect = newListSelect(m.app)
+				m.setSizes()
 			case "Quit":
 				return m, tea.Quit
 			}
@@ -315,7 +312,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.weekData.Days) > 0 && m.weekDayIndex >= 0 && m.weekDayIndex < len(m.weekData.Days) {
 					date = m.weekData.Days[m.weekDayIndex]
 				}
-				m.openQuickAdd(m.app.Config.DefaultList, date)
+				m.openTaskForm(m.app.Config.DefaultList, date)
 				return m, nil
 			case "c":
 				m.state = stateCalendarSelect
@@ -344,7 +341,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prepareDelete()
 				return m, nil
 			case "n":
-				m.openQuickAdd(m.app.Config.DefaultList, time.Now().In(m.app.Location))
+				m.openTaskForm(m.app.Config.DefaultList, time.Now().In(m.app.Location))
 			}
 		}
 		return m, cmd
@@ -394,7 +391,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.prepareDelete()
 				return m, nil
 			case "n":
-				m.openQuickAdd(m.listName, time.Time{})
+				m.openTaskForm(m.listName, time.Time{})
 			}
 		}
 		return m, cmd
@@ -411,20 +408,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.formInputs[0].SetValue(m.listName)
 			m.formInputs[1].Focus()
 		}
-		return m, cmd
-	case stateQuickAdd:
-		var cmd tea.Cmd
-		if key, ok := msg.(tea.KeyMsg); ok {
-			switch key.String() {
-			case "enter":
-				return m, m.quickAddCmd()
-			case "ctrl+u":
-				m.quickInput.SetValue("")
-				m.quickInput.SetCursor(0)
-				return m, nil
-			}
-		}
-		m.quickInput, cmd = m.quickInput.Update(msg)
 		return m, cmd
 	case stateTaskForm:
 		var cmd tea.Cmd
@@ -517,23 +500,21 @@ func (m tuiModel) View() string {
 	case stateMenu:
 		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
 	case stateWeekView:
-		hint := "tab: switch • ←/→ day • ↑/↓ item • space: done • e: edit • d: delete • n: quick add • c: calendars • r: refresh • esc: back"
+		hint := "tab: switch • ←/→ day • ↑/↓ item • space: done • e: edit • d: delete • n: new task • c: calendars • r: refresh • esc: back"
 		if m.weekRefreshing {
 			hint += " • refreshing…"
 		}
 		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(hint) + status)
 	case stateTodayTasks:
-		return padding.Render(renderHeader("Today") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: quick add • a: agenda • esc: back") + status)
+		return padding.Render(renderHeader("Today") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • a: agenda • esc: back") + status)
 	case stateAgendaDetails:
 		return padding.Render(renderHeader("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
 		return padding.Render(renderHeader("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:
-		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: quick add • a: all • esc: back") + status)
+		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • a: all • esc: back") + status)
 	case stateNewTaskList:
 		return padding.Render(renderHeader("Choose list") + "\n\n" + m.listSelect.View() + status)
-	case stateQuickAdd:
-		return padding.Render(renderQuickAdd(m.quickInput) + status)
 	case stateTaskForm:
 		return padding.Render(renderForm(m.formInputs, m.formStep, m.formMode) + status)
 	case stateConfirmDelete:
@@ -663,13 +644,6 @@ func newTaskInputs() []textinput.Model {
 	return []textinput.Model{listInput, titleInput, sectionInput, dateInput, timeInput, notesInput}
 }
 
-func newQuickInput() textinput.Model {
-	input := textinput.New()
-	input.Placeholder = "e.g. Limpiar el jardín mañana de 9 a 11 en Trabajo"
-	input.CharLimit = 256
-	return input
-}
-
 func renderForm(inputs []textinput.Model, step int, mode formMode) string {
 	labels := []string{"List", "Title", "Section", "Date", "Time", "Notes"}
 	var b strings.Builder
@@ -687,14 +661,6 @@ func renderForm(inputs []textinput.Model, step int, mode formMode) string {
 	}
 	b.WriteString("\n")
 	b.WriteString(gray("tab/shift+tab: navigate • enter: save • esc: cancel • ctrl+u: clear"))
-	return b.String()
-}
-
-func renderQuickAdd(input textinput.Model) string {
-	var b strings.Builder
-	b.WriteString(lipgloss.NewStyle().Bold(true).Render("Quick add") + "\n\n")
-	b.WriteString("Task: " + input.View() + "\n\n")
-	b.WriteString(gray("enter: create • esc: cancel • ctrl+u: clear"))
 	return b.String()
 }
 
@@ -810,25 +776,6 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 		m.status = msg.msg
 		switch m.state {
 		case stateTaskForm:
-			switch m.listCtx {
-			case listCtxToday:
-				m.state = stateTodayTasks
-				m.tasksList = newTasksListModel(buildTodayItems(m.app), "Today")
-			case listCtxWeek:
-				m.state = stateWeekView
-				m.weekLoading = true
-				m.setSizes()
-				return m, m.loadWeekDataCmd(m.weekAnchor())
-			default:
-				if m.listName != "" {
-					items, _ := buildListItems(m.app, m.listName, m.showAll)
-					m.state = stateListTasks
-					m.tasksList = newTasksListModel(items, m.listName)
-				} else {
-					m.state = stateMenu
-				}
-			}
-		case stateQuickAdd:
 			switch m.listCtx {
 			case listCtxToday:
 				m.state = stateTodayTasks
@@ -1082,47 +1029,19 @@ func (m *tuiModel) beginEditTask(task taskItem) tea.Cmd {
 	return nil
 }
 
-func (m *tuiModel) openQuickAdd(listHint string, dateHint time.Time) {
-	m.state = stateQuickAdd
-	m.quickInput = newQuickInput()
-	m.quickInput.Focus()
-	m.quickHintList = listHint
-	m.quickHintDate = dateHint
-}
-
-func (m *tuiModel) quickAddCmd() tea.Cmd {
-	return func() tea.Msg {
-		text := strings.TrimSpace(m.quickInput.Value())
-		if text == "" {
-			return errMsg{err: fmt.Errorf("please enter a task")}
-		}
-		result, err := parseQuickAdd(text, m.app, m.quickHintList, m.quickHintDate)
-		if err != nil {
-			return errMsg{err: err}
-		}
-		section := result.Section
-		if section == "" {
-			section = "General"
-		}
-		sectionTask, err := ensureSectionTask(m.app, result.ListID, section)
-		if err != nil {
-			return errMsg{err: err}
-		}
-		input := sync.CreateInput{
-			ListID:     result.ListID,
-			Title:      result.Title,
-			Notes:      result.Notes,
-			Due:        result.Due,
-			Recurrence: result.Recurrence,
-			TimeStart:  result.Start,
-			TimeEnd:    result.End,
-			ParentID:   sectionTask.Id,
-		}
-		if _, _, err := m.app.Sync.Create(input); err != nil {
-			return errMsg{err: err}
-		}
-		return okMsg{msg: "✅ Task created"}
+func (m *tuiModel) openTaskForm(listName string, dateHint time.Time) {
+	m.state = stateTaskForm
+	m.formMode = formNew
+	m.formInputs = newTaskInputs()
+	m.formStep = 1
+	if listName == "" {
+		listName = m.app.Config.DefaultList
 	}
+	m.formInputs[0].SetValue(listName)
+	if !dateHint.IsZero() {
+		m.formInputs[3].SetValue(dateHint.Format("2006-01-02"))
+	}
+	m.formInputs[1].Focus()
 }
 
 func (m *tuiModel) deleteTaskCmd() tea.Cmd {
