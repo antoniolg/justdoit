@@ -229,13 +229,50 @@ func (m *tuiModel) moveWeekSelection(delta int) {
 		m.weekBacklogIndex = next
 		return
 	}
+	allDay := m.weekData.AllDay[m.weekDayIndex]
 	events := m.weekData.Events[m.weekDayIndex]
+
+	if m.weekAllDayIndex >= 0 {
+		next := m.weekAllDayIndex + delta
+		if next >= 0 && next < len(allDay) {
+			m.weekAllDayIndex = next
+			return
+		}
+		if delta > 0 {
+			m.weekAllDayIndex = -1
+			if len(events) > 0 {
+				m.weekEventIndex = 0
+			} else {
+				m.weekEventIndex = -1
+			}
+			return
+		}
+		if m.weekAllDayIndex >= len(allDay) && len(allDay) > 0 {
+			m.weekAllDayIndex = len(allDay) - 1
+		} else if m.weekAllDayIndex < 0 && len(allDay) > 0 {
+			m.weekAllDayIndex = 0
+		}
+		return
+	}
+
 	if len(events) == 0 {
 		m.weekEventIndex = -1
+		if len(allDay) > 0 {
+			if delta < 0 {
+				m.weekAllDayIndex = len(allDay) - 1
+			} else {
+				m.weekAllDayIndex = 0
+			}
+		}
 		return
 	}
 	next := m.weekEventIndex + delta
 	if next < 0 {
+		if len(allDay) > 0 {
+			m.weekEventIndex = -1
+			m.weekAllDayIndex = len(allDay) - 1
+			return
+		}
 		next = 0
 	}
 	if next >= len(events) {
@@ -250,20 +287,60 @@ func (m *tuiModel) ensureWeekSelection() {
 	} else if m.weekBacklogIndex < 0 || m.weekBacklogIndex >= len(m.weekData.Backlog) {
 		m.weekBacklogIndex = 0
 	}
+	allDay := m.weekData.AllDay[m.weekDayIndex]
 	events := m.weekData.Events[m.weekDayIndex]
+
+	if len(allDay) == 0 {
+		m.weekAllDayIndex = -1
+	} else if m.weekAllDayIndex < 0 || m.weekAllDayIndex >= len(allDay) {
+		if len(events) == 0 {
+			m.weekAllDayIndex = 0
+		} else {
+			m.weekAllDayIndex = -1
+		}
+	}
+
 	if len(events) == 0 {
 		m.weekEventIndex = -1
+		if len(allDay) > 0 && m.weekAllDayIndex < 0 {
+			m.weekAllDayIndex = 0
+		}
 	} else if m.weekEventIndex < 0 || m.weekEventIndex >= len(events) {
-		m.weekEventIndex = 0
+		if m.weekAllDayIndex >= 0 {
+			m.weekEventIndex = -1
+		} else {
+			m.weekEventIndex = 0
+		}
 	}
 }
 
 func (m *tuiModel) selectedWeekEvent() (weekEvent, bool) {
+	if m.weekAllDayIndex >= 0 {
+		return weekEvent{}, false
+	}
 	events := m.weekData.Events[m.weekDayIndex]
 	if len(events) == 0 || m.weekEventIndex < 0 || m.weekEventIndex >= len(events) {
 		return weekEvent{}, false
 	}
 	return events[m.weekEventIndex], true
+}
+
+func (m *tuiModel) selectedWeekAllDayEvent() (weekEvent, bool) {
+	if m.weekAllDayIndex < 0 {
+		return weekEvent{}, false
+	}
+	items := m.weekData.AllDay[m.weekDayIndex]
+	if len(items) == 0 || m.weekAllDayIndex >= len(items) {
+		return weekEvent{}, false
+	}
+	return items[m.weekAllDayIndex], true
+}
+
+func (m *tuiModel) selectedWeekGridEvent() (weekEvent, bool) {
+	if ev, ok := m.selectedWeekAllDayEvent(); ok {
+		return ev, true
+	}
+	return m.selectedWeekEvent()
 }
 
 func (m *tuiModel) resolveTaskByID(taskID string) (taskItem, bool) {
@@ -319,7 +396,7 @@ func (m *tuiModel) selectedWeekTask() (taskItem, bool) {
 		}
 		return m.weekData.Backlog[m.weekBacklogIndex], true
 	}
-	event, ok := m.selectedWeekEvent()
+	event, ok := m.selectedWeekGridEvent()
 	if !ok || event.TaskID == "" {
 		return taskItem{}, false
 	}
@@ -495,19 +572,52 @@ func (m *tuiModel) renderWeekGrid(width, height int) string {
 	}
 	headerLines = append(headerLines, strings.Join(headerCells, strings.Repeat(" ", gap)))
 
-	// All-day row
-	if len(m.weekData.AllDay) > 0 {
-		row := []string{padText("All", timeColWidth)}
-		for dayIdx := range m.weekData.Days {
-			items := m.weekData.AllDay[dayIdx]
-			labels := []string{}
-			for _, ev := range items {
-				labels = append(labels, ev.Summary)
-			}
-			text := truncateText(strings.Join(labels, ", "), dayWidth)
-			row = append(row, lipgloss.NewStyle().Width(dayWidth).Foreground(colorMuted).Render(text))
+	// All-day rows
+	allDayRows := 0
+	allDayItems := make([][]weekEvent, len(m.weekData.Days))
+	for dayIdx := range m.weekData.Days {
+		items := m.weekData.AllDay[dayIdx]
+		allDayItems[dayIdx] = items
+		if len(items) > allDayRows {
+			allDayRows = len(items)
 		}
-		headerLines = append(headerLines, strings.Join(row, strings.Repeat(" ", gap)))
+	}
+	if allDayRows > 0 {
+		selectedAllDay := m.weekFocus == focusGrid && m.weekAllDayIndex >= 0 && m.weekDayIndex >= 0
+		for rowIdx := 0; rowIdx < allDayRows; rowIdx++ {
+			label := ""
+			if rowIdx == 0 {
+				label = "All"
+			}
+			row := []string{padText(label, timeColWidth)}
+			for dayIdx := range m.weekData.Days {
+				items := allDayItems[dayIdx]
+				ev := weekEvent{}
+				has := false
+				if rowIdx < len(items) {
+					ev = items[rowIdx]
+					has = true
+				}
+				text := ""
+				if has {
+					text = truncateText(ev.Summary, dayWidth)
+				}
+				style := lipgloss.NewStyle().Width(dayWidth)
+				if has {
+					if selectedAllDay && dayIdx == m.weekDayIndex && rowIdx == m.weekAllDayIndex {
+						style = style.Background(colorAccent).Foreground(lipgloss.Color("230"))
+					} else if ev.TaskID != "" {
+						style = style.Foreground(colorAccent)
+					} else {
+						style = style.Foreground(colorMuted)
+					}
+				} else {
+					style = style.Foreground(colorMuted)
+				}
+				row = append(row, style.Render(text))
+			}
+			headerLines = append(headerLines, strings.Join(row, strings.Repeat(" ", gap)))
+		}
 	}
 
 	slots := 24
@@ -670,7 +780,7 @@ func (m *tuiModel) renderWeekSlot(dayIdx, slot, width int) string {
 func (m *tuiModel) renderWeekDetails(width int) string {
 	lines := []string{}
 	if m.weekFocus == focusGrid {
-		if ev, ok := m.selectedWeekEvent(); ok {
+		if ev, ok := m.selectedWeekGridEvent(); ok {
 			lines = append(lines, lipgloss.NewStyle().Bold(true).Render(ev.Summary))
 			if !ev.AllDay {
 				lines = append(lines, fmt.Sprintf("Time: %s - %s", ev.Start.Format("2006-01-02 15:04"), ev.End.Format("15:04")))

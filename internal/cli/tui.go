@@ -118,6 +118,7 @@ type tuiModel struct {
 	weekDayIndex     int
 	weekBacklogIndex int
 	weekEventIndex   int
+	weekAllDayIndex  int
 	weekLoading      bool
 	calendarLoading  bool
 	weekRefreshing   bool
@@ -263,6 +264,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.weekFocus = focusGrid
 				m.weekDayIndex = -1
 				m.weekEventIndex = -1
+				m.weekAllDayIndex = -1
 				m.weekBacklogIndex = -1
 				m.weekLoading = true
 				return m, m.loadWeekDataCmd(m.app.Now)

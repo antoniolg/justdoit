@@ -138,6 +138,24 @@ func buildWeekDataFromCache(app *App, c *cache.Cache, weekStart time.Time) (week
 		}
 	}
 
+	if len(tasks) > 0 {
+		for _, task := range tasks {
+			if taskHasEvent[task.ID] || !task.HasDue {
+				continue
+			}
+			dayStart := time.Date(task.Due.Year(), task.Due.Month(), task.Due.Day(), 0, 0, 0, 0, app.Location)
+			dayEnd := dayStart.AddDate(0, 0, 1)
+			event := weekEvent{
+				Summary: task.TitleVal,
+				TaskID:  task.ID,
+				Start:   dayStart,
+				End:     dayEnd,
+				AllDay:  true,
+			}
+			addAllDayEvent(allDayByDay, days, event)
+		}
+	}
+
 	for dayIdx, events := range eventsByDay {
 		maxCols, updated := assignEventColumns(events)
 		eventsByDay[dayIdx] = updated
