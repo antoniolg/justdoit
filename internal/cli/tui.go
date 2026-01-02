@@ -1109,13 +1109,14 @@ func (m *tuiModel) quickAddCmd() tea.Cmd {
 			return errMsg{err: err}
 		}
 		input := sync.CreateInput{
-			ListID:    result.ListID,
-			Title:     result.Title,
-			Notes:     result.Notes,
-			Due:       result.Due,
-			TimeStart: result.Start,
-			TimeEnd:   result.End,
-			ParentID:  sectionTask.Id,
+			ListID:     result.ListID,
+			Title:      result.Title,
+			Notes:      result.Notes,
+			Due:        result.Due,
+			Recurrence: result.Recurrence,
+			TimeStart:  result.Start,
+			TimeEnd:    result.End,
+			ParentID:   sectionTask.Id,
 		}
 		if _, _, err := m.app.Sync.Create(input); err != nil {
 			return errMsg{err: err}

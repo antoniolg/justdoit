@@ -25,14 +25,15 @@ type Wrapper struct {
 }
 
 type CreateInput struct {
-	ListID     string
-	Title      string
-	Notes      string
-	Due        *time.Time
-	Recurrence []string
-	TimeStart  *time.Time
-	TimeEnd    *time.Time
-	ParentID   string
+	ListID      string
+	Title       string
+	Notes       string
+	Due         *time.Time
+	Recurrence  []string
+	RepeatEvent bool
+	TimeStart   *time.Time
+	TimeEnd     *time.Time
+	ParentID    string
 }
 
 func (w *Wrapper) Create(input CreateInput) (*tasks.Task, *calendar.Event, error) {
@@ -76,7 +77,7 @@ func (w *Wrapper) Create(input CreateInput) (*tasks.Task, *calendar.Event, error
 			DateTime: input.TimeEnd.Format(time.RFC3339),
 		},
 	}
-	if len(input.Recurrence) > 0 {
+	if len(input.Recurrence) > 0 && input.RepeatEvent {
 		event.Recurrence = input.Recurrence
 	}
 	createdEvent, err := w.Calendar.CreateEvent(w.CalendarID, event)

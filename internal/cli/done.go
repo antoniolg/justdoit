@@ -2,11 +2,9 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
-
-	"justdoit/internal/sync"
+	"google.golang.org/api/tasks/v1"
 )
 
 func newDoneCmd() *cobra.Command {
@@ -28,47 +26,14 @@ func newDoneCmd() *cobra.Command {
 				return err
 			}
 			taskID := args[0]
-			task, err := app.Tasks.GetTask(listID, taskID)
-			if err != nil {
-				return err
-			}
-			if _, err := app.Tasks.CompleteTask(listID, taskID); err != nil {
+			if err := markTaskDone(app, listID, taskID, markEvent); err != nil {
 				return err
 			}
 			fmt.Println("✅ Task completed")
-			if !markEvent {
-				return nil
-			}
-
-			eventID, ok := sync.ExtractMetadata(task.Notes, sync.TaskEventIDKey)
-			var eventErr error
-			var eventIDUsed string
-			if ok {
-				eventIDUsed = eventID
-			} else {
-				event, err := app.Calendar.FindEventByTaskID(app.Config.CalendarID, taskID)
-				if err != nil {
-					eventErr = err
-				} else {
-					eventIDUsed = event.Id
+			if markEvent {
+				if event, ok, _ := findLinkedEvent(app, &tasks.Task{Id: taskID}); ok && event != nil {
+					fmt.Println("📅 Event marked")
 				}
-			}
-			if eventIDUsed == "" {
-				if eventErr != nil {
-					return eventErr
-				}
-				return nil
-			}
-			event, err := app.Calendar.GetEvent(app.Config.CalendarID, eventIDUsed)
-			if err != nil {
-				return err
-			}
-			if !strings.HasPrefix(event.Summary, "✅ ") {
-				event.Summary = "✅ " + event.Summary
-				if _, err := app.Calendar.UpdateEvent(app.Config.CalendarID, event); err != nil {
-					return err
-				}
-				fmt.Println("📅 Event marked")
 			}
 			return nil
 		},

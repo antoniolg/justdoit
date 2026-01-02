@@ -9,6 +9,7 @@ import (
 	"google.golang.org/api/tasks/v1"
 
 	"justdoit/internal/metadata"
+	"justdoit/internal/recurrence"
 	"justdoit/internal/sync"
 	"justdoit/internal/timeparse"
 )
@@ -153,13 +154,17 @@ func markTaskDone(app *App, listID, taskID string, markEvent bool) error {
 	if err != nil {
 		return err
 	}
+	event, _, _ := findLinkedEvent(app, task)
 	if _, err := app.Tasks.CompleteTask(listID, taskID); err != nil {
 		return err
 	}
 	if !markEvent {
-		return nil
+		return createNextRecurringTask(app, listID, task, event)
 	}
-	return updateLinkedEventPrefix(app, task, true)
+	if err := updateLinkedEventPrefix(app, task, true); err != nil {
+		return err
+	}
+	return createNextRecurringTask(app, listID, task, event)
 }
 
 func deleteTask(app *App, listID, taskID string, deleteEvent bool) error {
@@ -182,6 +187,7 @@ func toggleTaskDone(app *App, listID, taskID string, markEvent bool) (bool, erro
 	if err != nil {
 		return false, err
 	}
+	event, _, _ := findLinkedEvent(app, task)
 	completed := strings.EqualFold(task.Status, "completed")
 	if completed {
 		if _, err := app.Tasks.UncompleteTask(listID, taskID); err != nil {
@@ -197,6 +203,9 @@ func toggleTaskDone(app *App, listID, taskID string, markEvent bool) (bool, erro
 	}
 	if markEvent {
 		_ = updateLinkedEventPrefix(app, task, true)
+	}
+	if err := createNextRecurringTask(app, listID, task, event); err != nil {
+		return true, err
 	}
 	return true, nil
 }
@@ -246,6 +255,71 @@ func stripMetadataNotes(notes string) string {
 		filtered = append(filtered, line)
 	}
 	return strings.TrimSpace(strings.Join(filtered, "\n"))
+}
+
+func createNextRecurringTask(app *App, listID string, task *tasks.Task, event *calendar.Event) error {
+	if task == nil || app == nil {
+		return nil
+	}
+	rule, ok := metadata.Extract(task.Notes, "justdoit_rrule")
+	if !ok || strings.TrimSpace(rule) == "" {
+		return nil
+	}
+
+	baseStart, duration := taskTiming(app, task, event)
+	nextStart, ok, err := recurrence.NextOccurrence(rule, baseStart, app.Now, app.Location)
+	if err != nil || !ok || nextStart.IsZero() {
+		return err
+	}
+
+	var (
+		start *time.Time
+		end   *time.Time
+		due   *time.Time
+	)
+	if duration > 0 {
+		startVal := nextStart
+		endVal := nextStart.Add(duration)
+		start = &startVal
+		end = &endVal
+		due = &endVal
+	} else {
+		endOfDay := time.Date(nextStart.Year(), nextStart.Month(), nextStart.Day(), 23, 59, 0, 0, app.Location)
+		due = &endOfDay
+	}
+
+	notes := stripMetadataNotes(task.Notes)
+	input := sync.CreateInput{
+		ListID:     listID,
+		Title:      task.Title,
+		Notes:      notes,
+		Due:        due,
+		Recurrence: []string{rule},
+		TimeStart:  start,
+		TimeEnd:    end,
+		ParentID:   task.Parent,
+	}
+	if event != nil && len(event.Recurrence) > 0 {
+		input.TimeStart = nil
+		input.TimeEnd = nil
+	}
+	_, _, err = app.Sync.Create(input)
+	return err
+}
+
+func taskTiming(app *App, task *tasks.Task, event *calendar.Event) (time.Time, time.Duration) {
+	if event != nil {
+		start, end := eventTimes(event, app.Location)
+		if !start.IsZero() && !end.IsZero() && end.After(start) {
+			return start, end.Sub(start)
+		}
+	}
+	if task != nil && task.Due != "" {
+		if due, err := time.Parse(time.RFC3339, task.Due); err == nil {
+			return due.In(app.Location), 0
+		}
+	}
+	return time.Time{}, 0
 }
 
 func ensureSectionTask(app *App, listID, section string) (*tasks.Task, error) {

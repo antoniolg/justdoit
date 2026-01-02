@@ -7,18 +7,20 @@ import (
 	"strings"
 	"time"
 
+	"justdoit/internal/recurrence"
 	"justdoit/internal/timeparse"
 )
 
 type quickAddResult struct {
-	Title    string
-	ListName string
-	ListID   string
-	Section  string
-	Notes    string
-	Due      *time.Time
-	Start    *time.Time
-	End      *time.Time
+	Title      string
+	ListName   string
+	ListID     string
+	Section    string
+	Notes      string
+	Due        *time.Time
+	Start      *time.Time
+	End        *time.Time
+	Recurrence []string
 }
 
 func parseQuickAdd(input string, app *App, listHint string, dateHint time.Time) (quickAddResult, error) {
@@ -26,6 +28,7 @@ func parseQuickAdd(input string, app *App, listHint string, dateHint time.Time) 
 	if text == "" {
 		return quickAddResult{}, fmt.Errorf("empty input")
 	}
+	text, recurrenceRules, _ := recurrence.ExtractFromText(text)
 	listName := pickDefaultList(app, listHint)
 	listNames := listKeys(app)
 	text, picked := extractListSuffix(text, listNames)
@@ -73,12 +76,13 @@ func parseQuickAdd(input string, app *App, listHint string, dateHint time.Time) 
 	}
 
 	return quickAddResult{
-		Title:    text,
-		ListName: listName,
-		ListID:   listID,
-		Due:      due,
-		Start:    start,
-		End:      end,
+		Title:      text,
+		ListName:   listName,
+		ListID:     listID,
+		Due:        due,
+		Start:      start,
+		End:        end,
+		Recurrence: recurrenceRules,
 	}, nil
 }
 

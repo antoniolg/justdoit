@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"justdoit/internal/recurrence"
 	"justdoit/internal/sync"
 	"justdoit/internal/timeparse"
 )
@@ -30,6 +31,14 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			title := strings.Join(args, " ")
+			recurrenceFromTitle := []string{}
+			if strings.TrimSpace(every) == "" {
+				cleanTitle, recurrences, ok := recurrence.ExtractFromText(title)
+				if ok {
+					title = cleanTitle
+					recurrenceFromTitle = recurrences
+				}
+			}
 			listID, err := resolveListID(app, list, list != "")
 			if err != nil {
 				return err
@@ -46,9 +55,12 @@ func newAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			recurrence, err := buildRecurrence(every)
+			recurrence, err := recurrence.ParseEvery(every)
 			if err != nil {
 				return err
+			}
+			if len(recurrence) == 0 {
+				recurrence = recurrenceFromTitle
 			}
 			var due *time.Time
 			var start *time.Time
@@ -107,26 +119,4 @@ func resolveListID(app *App, list string, explicit bool) (string, error) {
 		return list, nil
 	}
 	return "", fmt.Errorf("list not mapped: %s (run `justdoit setup`)", list)
-}
-
-func buildRecurrence(every string) ([]string, error) {
-	if every == "" {
-		return nil, nil
-	}
-	freq := ""
-	s := strings.ToLower(strings.TrimSpace(every))
-	switch {
-	case strings.Contains(s, "day"):
-		freq = "DAILY"
-	case strings.Contains(s, "week"):
-		freq = "WEEKLY"
-	case strings.Contains(s, "month"):
-		freq = "MONTHLY"
-	case strings.Contains(s, "year"):
-		freq = "YEARLY"
-	default:
-		return nil, fmt.Errorf("unsupported recurrence: %s", every)
-	}
-	rrule := fmt.Sprintf("RRULE:FREQ=%s", freq)
-	return []string{rrule}, nil
 }
