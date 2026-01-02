@@ -89,6 +89,7 @@ func buildWeekDataFromCache(app *App, c *cache.Cache, weekStart time.Time) (week
 
 	eventsByDay := map[int][]weekEvent{}
 	allDayByDay := map[int][]weekEvent{}
+	var dayCols map[int]int
 	taskHasEvent := map[string]bool{}
 
 	for _, calendarID := range app.Config.ViewCalendars {
@@ -138,10 +139,14 @@ func buildWeekDataFromCache(app *App, c *cache.Cache, weekStart time.Time) (week
 	}
 
 	for dayIdx, events := range eventsByDay {
-		sort.SliceStable(events, func(i, j int) bool {
-			return events[i].Start.Before(events[j].Start)
-		})
-		eventsByDay[dayIdx] = events
+		maxCols, updated := assignEventColumns(events)
+		eventsByDay[dayIdx] = updated
+		if maxCols > 0 {
+			if dayCols == nil {
+				dayCols = map[int]int{}
+			}
+			dayCols[dayIdx] = maxCols
+		}
 	}
 
 	backlog := make([]taskItem, 0, len(tasks))
@@ -171,9 +176,74 @@ func buildWeekDataFromCache(app *App, c *cache.Cache, weekStart time.Time) (week
 		Days:      days,
 		Events:    eventsByDay,
 		AllDay:    allDayByDay,
+		DayCols:   dayCols,
 		Backlog:   backlog,
 		TaskByID:  taskByID,
 	}, true
+}
+
+func assignEventColumns(events []weekEvent) (int, []weekEvent) {
+	if len(events) == 0 {
+		return 0, events
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].Start.Equal(events[j].Start) {
+			return events[i].End.Before(events[j].End)
+		}
+		return events[i].Start.Before(events[j].Start)
+	})
+	type activeEvent struct {
+		end time.Time
+		col int
+	}
+	active := make([]activeEvent, 0, len(events))
+	available := make([]int, 0, len(events))
+	maxCols := 0
+	for i := range events {
+		start := events[i].Start
+		if len(active) > 0 {
+			nextActive := active[:0]
+			for _, a := range active {
+				if !a.end.After(start) {
+					available = append(available, a.col)
+					continue
+				}
+				nextActive = append(nextActive, a)
+			}
+			active = nextActive
+		}
+		col := 0
+		if len(available) > 0 {
+			minIdx := 0
+			for idx := 1; idx < len(available); idx++ {
+				if available[idx] < available[minIdx] {
+					minIdx = idx
+				}
+			}
+			col = available[minIdx]
+			available = append(available[:minIdx], available[minIdx+1:]...)
+		} else {
+			col = maxCols
+		}
+		events[i].Column = col
+		if col+1 > maxCols {
+			maxCols = col + 1
+		}
+		active = append(active, activeEvent{end: events[i].End, col: col})
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if !events[i].Start.Equal(events[j].Start) {
+			return events[i].Start.Before(events[j].Start)
+		}
+		if events[i].Column != events[j].Column {
+			return events[i].Column < events[j].Column
+		}
+		if !events[i].End.Equal(events[j].End) {
+			return events[i].End.Before(events[j].End)
+		}
+		return events[i].Summary < events[j].Summary
+	})
+	return maxCols, events
 }
 
 func collectTasksFromCache(app *App, c *cache.Cache, start, end time.Time) ([]taskItem, map[string]taskItem) {

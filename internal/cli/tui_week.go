@@ -31,6 +31,7 @@ type weekEvent struct {
 	StartSlot    int
 	EndSlot      int
 	AllDay       bool
+	Column       int
 }
 
 type weekData struct {
@@ -38,6 +39,7 @@ type weekData struct {
 	Days      []time.Time
 	Events    map[int][]weekEvent
 	AllDay    map[int][]weekEvent
+	DayCols   map[int]int
 	Backlog   []taskItem
 	TaskByID  map[string]taskItem
 }
@@ -559,27 +561,110 @@ func (m *tuiModel) renderWeekGrid(width, height int) string {
 	return strings.Join(visible, "\n")
 }
 
+func (m *tuiModel) dayColumnCount(dayIdx, dayWidth int) int {
+	maxCols := 1
+	if m.weekData.DayCols != nil {
+		if cols, ok := m.weekData.DayCols[dayIdx]; ok && cols > 0 {
+			maxCols = cols
+		}
+	}
+	minColWidth := 4
+	maxFit := dayWidth / minColWidth
+	if maxFit < 1 {
+		maxFit = 1
+	}
+	if maxCols > maxFit {
+		maxCols = maxFit
+	}
+	return maxCols
+}
+
+func splitColumnWidths(total, cols int) []int {
+	if cols <= 0 {
+		return []int{}
+	}
+	gaps := cols - 1
+	available := total - gaps
+	if available < cols {
+		available = cols
+	}
+	base := available / cols
+	extra := available % cols
+	widths := make([]int, cols)
+	for i := 0; i < cols; i++ {
+		widths[i] = base
+		if i < extra {
+			widths[i]++
+		}
+	}
+	return widths
+}
+
 func (m *tuiModel) renderWeekSlot(dayIdx, slot, width int) string {
 	events := m.weekData.Events[dayIdx]
 	selected := m.weekFocus == focusGrid && dayIdx == m.weekDayIndex
-	for idx, ev := range events {
+	cols := m.dayColumnCount(dayIdx, width)
+	colWidths := splitColumnWidths(width, cols)
+	cells := make([]string, cols)
+	colEvents := make(map[int]weekEvent)
+	overflow := 0
+	overflowStart := -1
+
+	var selectedEvent weekEvent
+	selectedSlot := false
+	if selected && m.weekEventIndex >= 0 && m.weekEventIndex < len(events) {
+		selectedEvent = events[m.weekEventIndex]
+		if slot >= selectedEvent.StartSlot && slot < selectedEvent.EndSlot {
+			selectedSlot = true
+		}
+	}
+
+	for _, ev := range events {
 		if slot < ev.StartSlot || slot >= ev.EndSlot {
 			continue
 		}
-		text := "|"
-		if slot == ev.StartSlot {
-			text = truncateText(ev.Summary, width)
+		if ev.Column < cols {
+			colEvents[ev.Column] = ev
+			continue
+		}
+		overflow++
+		if overflowStart == -1 || ev.StartSlot < overflowStart {
+			overflowStart = ev.StartSlot
+		}
+	}
+
+	selectedOverflow := selectedSlot && selectedEvent.Column >= cols
+	if selectedOverflow && cols > 0 {
+		colEvents[cols-1] = selectedEvent
+	}
+
+	for col := 0; col < cols; col++ {
+		width := colWidths[col]
+		ev, ok := colEvents[col]
+		text := ""
+		if ok {
+			if slot == ev.StartSlot {
+				text = ev.Summary
+			} else {
+				text = "|"
+			}
+		} else if overflow > 0 && col == cols-1 && !selectedOverflow && slot == overflowStart {
+			text = fmt.Sprintf("+%d", overflow)
+		}
+		if text != "" {
+			text = truncateText(text, width)
 		}
 		cell := lipgloss.NewStyle().Width(width).Render(text)
-		if selected && idx == m.weekEventIndex {
-			return lipgloss.NewStyle().Background(colorAccent).Foreground(lipgloss.Color("230")).Render(cell)
+		if ok && selected && selectedSlot && ev.Column == selectedEvent.Column {
+			cell = lipgloss.NewStyle().Background(colorAccent).Foreground(lipgloss.Color("230")).Width(width).Render(text)
+		} else if ok && ev.TaskID != "" {
+			cell = lipgloss.NewStyle().Foreground(colorAccent).Width(width).Render(text)
+		} else if ok || text != "" {
+			cell = lipgloss.NewStyle().Foreground(colorMuted).Width(width).Render(text)
 		}
-		if ev.TaskID != "" {
-			return lipgloss.NewStyle().Foreground(colorAccent).Render(cell)
-		}
-		return lipgloss.NewStyle().Foreground(colorMuted).Render(cell)
+		cells[col] = cell
 	}
-	return lipgloss.NewStyle().Width(width).Render("")
+	return strings.Join(cells, " ")
 }
 
 func (m *tuiModel) renderWeekDetails(width int) string {
