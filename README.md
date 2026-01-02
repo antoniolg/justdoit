@@ -71,6 +71,12 @@ go build -o justdoit ./cmd/justdoit
 ./justdoit update <TASK_ID> --date "tomorrow" --time "16:00-17:00"
 ./justdoit update <TASK_ID> --section "This week"
 
+# create sections
+./justdoit section create "This week" "This month" --list "Work"
+
+# rename a section
+./justdoit section rename "This week" "This month" --list "Work"
+
 # delete a task (and linked event)
 ./justdoit delete <TASK_ID>
 
