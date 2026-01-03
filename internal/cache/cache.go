@@ -53,6 +53,7 @@ func Default() *Cache {
 }
 
 func Load(path string) (*Cache, error) {
+	// #nosec G304 -- path is controlled by the app config/cache location
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

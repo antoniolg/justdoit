@@ -18,6 +18,7 @@ type Config struct {
 }
 
 func Load(path string) (*Config, error) {
+	// #nosec G304 -- path is controlled by the app config location
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -61,6 +62,7 @@ func Default() *Config {
 }
 
 func LoadOrCreate(path string) (*Config, error) {
+	// #nosec G304 -- path is controlled by the app config location
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

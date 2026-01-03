@@ -84,7 +84,7 @@ func (d calendarDelegate) Render(w io.Writer, m list.Model, index int, item list
 	if index == m.Index() {
 		style = d.Styles.SelectedTitle
 	}
-	fmt.Fprint(w, style.Render(label))
+	_, _ = fmt.Fprint(w, style.Render(label))
 }
 
 func newCalendarSelect(items []simpleCalendar, selected []string) list.Model {
@@ -445,23 +445,6 @@ func (m *tuiModel) prepareDeleteWeekTask() {
 	}
 	m.listCtx = listCtxWeek
 	m.prepareDeleteTask(task)
-}
-
-func (m *tuiModel) startNewTaskFromWeek() {
-	m.state = stateTaskForm
-	m.formMode = formNew
-	m.formInputs = newTaskInputs()
-	m.formStep = 1
-	m.listCtx = listCtxWeek
-	listName := m.app.Config.DefaultList
-	if listName == "" {
-		listName = m.listName
-	}
-	m.formInputs[0].SetValue(listName)
-	m.formInputs[1].Focus()
-	if len(m.weekData.Days) > 0 && m.weekDayIndex >= 0 && m.weekDayIndex < len(m.weekData.Days) {
-		m.formInputs[3].SetValue(m.weekData.Days[m.weekDayIndex].Format("2006-01-02"))
-	}
 }
 
 func (m *tuiModel) weekView() string {
@@ -884,25 +867,6 @@ func slotRange(start, end time.Time) (int, int) {
 		endSlot = 24
 	}
 	return startSlot, endSlot
-}
-
-func windowRange(total, index, height int) (int, int) {
-	if height >= total {
-		return 0, total
-	}
-	start := index - height/2
-	if start < 0 {
-		start = 0
-	}
-	end := start + height
-	if end > total {
-		end = total
-		start = end - height
-		if start < 0 {
-			start = 0
-		}
-	}
-	return start, end
 }
 
 func truncateText(text string, max int) string {

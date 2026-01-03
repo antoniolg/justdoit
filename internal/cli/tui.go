@@ -121,6 +121,7 @@ type tuiModel struct {
 	showAll     bool
 	showBacklog bool
 	nextLoading bool
+	listLoading bool
 	status      string
 
 	weekData        weekData
@@ -324,6 +325,20 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tasksList = newTasksListModel(msg.items, "Next")
+		m.setSizes()
+		return m, nil
+	case listItemsMsg:
+		m.listLoading = false
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			m.tasksList = newTasksListModel(errorItems(msg.err), m.listName)
+			m.setSizes()
+			return m, nil
+		}
+		if msg.listName != "" {
+			m.listName = msg.listName
+		}
+		m.tasksList = newTasksListModel(msg.items, m.listName)
 		m.setSizes()
 		return m, nil
 	case okMsg, errMsg, weekDataMsg, calendarListMsg, taskToggleMsg:
@@ -595,14 +610,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.state = stateListTasks
 			m.listCtx = listCtxList
 			m.showAll = false
-			items, err := buildListItems(m.app, m.listName, m.showAll)
-			if err != nil {
-				m.status = err.Error()
-				m.state = stateMenu
-				return m, nil
-			}
-			m.tasksList = newTasksListModel(items, m.listName)
-			m.setSizes()
+			return m.startListLoad(m.listName, m.showAll)
 		}
 		return m, cmd
 	case stateListTasks:
@@ -616,14 +624,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch key.String() {
 			case "a":
 				m.showAll = !m.showAll
-				items, err := buildListItems(m.app, m.listName, m.showAll)
-				if err != nil {
-					m.status = err.Error()
-					m.state = stateMenu
-					return m, nil
-				}
-				m.tasksList = newTasksListModel(items, m.listName)
-				m.setSizes()
+				nextModel, nextCmd := m.startListLoad(m.listName, m.showAll)
+				return nextModel, nextCmd
 			case " ":
 				return m, m.completeSelectedTaskCmd()
 			case "e", "enter":
@@ -765,7 +767,11 @@ func (m tuiModel) View() string {
 	case stateListSelect:
 		return padding.Render(renderHeader("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:
-		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • s: snooze • d: delete • n: new task • a: all • esc: back") + status)
+		hint := "space: done • e: edit • s: snooze • d: delete • n: new task • a: all • esc: back"
+		if m.listLoading {
+			hint += " • loading…"
+		}
+		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray(hint) + status)
 	case stateNewTaskList:
 		return padding.Render(renderHeader("Choose list") + "\n\n" + m.listSelect.View() + status)
 	case stateTaskForm:
@@ -937,9 +943,7 @@ func (m *tuiModel) refreshAfterQuickCapture() (tuiModel, tea.Cmd) {
 	case stateTodayTasks:
 		return m.startNextLoad()
 	case stateListTasks:
-		items, _ := buildListItems(m.app, m.listName, m.showAll)
-		m.tasksList = newTasksListModel(items, m.listName)
-		return *m, nil
+		return m.startListLoad(m.listName, m.showAll)
 	case stateWeekView:
 		m.weekLoading = true
 		m.setSizes()
@@ -969,6 +973,21 @@ func (m *tuiModel) startNextLoad() (tuiModel, tea.Cmd) {
 	m.tasksList = newTasksListModel(loadingItems("Loading..."), "Next")
 	m.setSizes()
 	return *m, m.nextItemsCmd(m.showBacklog)
+}
+
+func (m tuiModel) listItemsCmd(listName string, showAll bool) tea.Cmd {
+	return func() tea.Msg {
+		items, err := buildListItems(m.app, listName, showAll)
+		return listItemsMsg{listName: listName, items: items, err: err}
+	}
+}
+
+func (m *tuiModel) startListLoad(listName string, showAll bool) (tuiModel, tea.Cmd) {
+	m.listLoading = true
+	m.listName = listName
+	m.tasksList = newTasksListModel(loadingItems("Loading..."), listName)
+	m.setSizes()
+	return *m, m.listItemsCmd(listName, showAll)
 }
 
 func loadingItems(label string) []list.Item {
@@ -1232,6 +1251,12 @@ type nextItemsMsg struct {
 	err   error
 }
 
+type listItemsMsg struct {
+	listName string
+	items    []list.Item
+	err      error
+}
+
 func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case okMsg:
@@ -1257,9 +1282,8 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 				}
 			default:
 				if m.listName != "" {
-					items, _ := buildListItems(m.app, m.listName, m.showAll)
 					m.state = stateListTasks
-					m.tasksList = newTasksListModel(items, m.listName)
+					return m.startListLoad(m.listName, m.showAll)
 				} else {
 					m.state = stateMenu
 				}
@@ -1283,13 +1307,11 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
 				}
 			default:
-				items, _ := buildListItems(m.app, m.listName, m.showAll)
 				m.state = stateListTasks
-				m.tasksList = newTasksListModel(items, m.listName)
+				return m.startListLoad(m.listName, m.showAll)
 			}
 		case stateListTasks:
-			items, _ := buildListItems(m.app, m.listName, m.showAll)
-			m.tasksList = newTasksListModel(items, m.listName)
+			return m.startListLoad(m.listName, m.showAll)
 		case stateTodayTasks:
 			return m.startNextLoad()
 		case stateSearch:

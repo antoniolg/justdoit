@@ -6,32 +6,32 @@ import (
 )
 
 var dayMap = map[string]string{
-	"monday":   "MO",
-	"mon":      "MO",
-	"lunes":    "MO",
-	"lun":      "MO",
-	"tuesday":  "TU",
-	"tue":      "TU",
-	"martes":   "TU",
-	"mar":      "TU",
-	"wednesday":"WE",
-	"wed":      "WE",
-	"miercoles":"WE",
-	"miércoles":"WE",
-	"mie":      "WE",
-	"jueves":   "TH",
-	"thu":      "TH",
-	"thursday": "TH",
-	"viernes":  "FR",
-	"fri":      "FR",
-	"friday":   "FR",
-	"sabado":   "SA",
-	"sábado":   "SA",
-	"sat":      "SA",
-	"saturday": "SA",
-	"domingo":  "SU",
-	"sun":      "SU",
-	"sunday":   "SU",
+	"monday":    "MO",
+	"mon":       "MO",
+	"lunes":     "MO",
+	"lun":       "MO",
+	"tuesday":   "TU",
+	"tue":       "TU",
+	"martes":    "TU",
+	"mar":       "TU",
+	"wednesday": "WE",
+	"wed":       "WE",
+	"miercoles": "WE",
+	"miércoles": "WE",
+	"mie":       "WE",
+	"jueves":    "TH",
+	"thu":       "TH",
+	"thursday":  "TH",
+	"viernes":   "FR",
+	"fri":       "FR",
+	"friday":    "FR",
+	"sabado":    "SA",
+	"sábado":    "SA",
+	"sat":       "SA",
+	"saturday":  "SA",
+	"domingo":   "SU",
+	"sun":       "SU",
+	"sunday":    "SU",
 }
 
 var dayOrder = []string{"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
@@ -83,7 +83,7 @@ func parseRecurrence(input string, allowBareDays bool) (string, bool) {
 	if containsAny(clean, []string{"monthly", "every month", "cada mes", "mensual"}) {
 		return "RRULE:FREQ=MONTHLY", true
 	}
-	if containsAny(clean, []string{"yearly", "every year", "cada ano", "cada año", "anual"}) {
+	if containsAny(clean, []string{"yearly", "every year", "cada ano", "cada año", "anual"}) { //nolint:misspell
 		return "RRULE:FREQ=YEARLY", true
 	}
 	if containsAny(clean, []string{"weekday", "weekdays", "laborable", "laborables"}) {
@@ -127,7 +127,7 @@ func stripRecurrenceTokens(text string) string {
 		return replaceOnceCaseInsensitive(s, target, "")
 	}
 	clean := text
-	for _, token := range []string{"cada", "every", "todos", "todas", "los", "las", "daily", "weekly", "monthly", "yearly", "diario", "diaria", "semanal", "mensual", "anual", "weekday", "weekdays", "laborable", "laborables"} {
+	for _, token := range []string{"cada", "every", "todos", "todas", "los", "las", "daily", "weekly", "monthly", "yearly", "diario", "diaria", "semanal", "mensual", "anual", "weekday", "weekdays", "laborable", "laborables"} { //nolint:misspell
 		clean = replace(clean, token)
 	}
 	for token := range dayMap {

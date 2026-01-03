@@ -98,9 +98,7 @@ func (m *tuiModel) refreshAfterSearch() (tuiModel, tea.Cmd) {
 	case stateTodayTasks:
 		return m.startNextLoad()
 	case stateListTasks:
-		items, _ := buildListItems(m.app, m.listName, m.showAll)
-		m.tasksList = newTasksListModel(items, m.listName)
-		return *m, nil
+		return m.startListLoad(m.listName, m.showAll)
 	case stateWeekView:
 		m.weekLoading = true
 		m.setSizes()

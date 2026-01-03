@@ -22,6 +22,7 @@ var scopes = []string{
 }
 
 func Client(ctx context.Context, credentialsPath, tokenPath string) (*http.Client, error) {
+	// #nosec G304 -- credentials path is user-configured
 	creds, err := os.ReadFile(credentialsPath)
 	if err != nil {
 		return nil, fmt.Errorf("read credentials: %w", err)
@@ -57,6 +58,7 @@ func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 	codeCh := make(chan string, 1)
 	errCh := make(chan error, 1)
 	srv := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/callback" {
 				http.NotFound(w, r)
@@ -71,7 +73,7 @@ func getTokenFromWeb(config *oauth2.Config) (*oauth2.Token, error) {
 				http.Error(w, "Missing code", http.StatusBadRequest)
 				return
 			}
-			fmt.Fprintln(w, "Auth complete. You can close this tab and return to the CLI.")
+			_, _ = fmt.Fprintln(w, "Auth complete. You can close this tab and return to the CLI.")
 			codeCh <- code
 		}),
 	}
@@ -123,11 +125,12 @@ func clickableLink(text, url string) string {
 }
 
 func tokenFromFile(path string) (*oauth2.Token, error) {
+	// #nosec G304 -- token path is user-configured
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	var tok oauth2.Token
 	if err := json.NewDecoder(file).Decode(&tok); err != nil {
 		return nil, err
@@ -140,10 +143,11 @@ func saveToken(path string, token *oauth2.Token) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
+	// #nosec G304 -- token path is user-configured
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return json.NewEncoder(file).Encode(token)
 }

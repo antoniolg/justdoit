@@ -60,14 +60,6 @@ func viewDay(app *App, day time.Time) error {
 	return nil
 }
 
-func buildDayText(app *App, day time.Time) string {
-	text, err := buildDayTextWithError(app, day)
-	if err != nil {
-		return err.Error()
-	}
-	return text
-}
-
 func buildDayTextWithError(app *App, day time.Time) (string, error) {
 	dayStart, dayEnd, err := agenda.DayBounds(day, app.Config.WorkdayStart, app.Config.WorkdayEnd, app.Location)
 	if err != nil {
@@ -199,8 +191,4 @@ func renderEvent(e *calendar.Event, loc *time.Location) string {
 		return fmt.Sprintf("- All-day %s\n", e.Summary)
 	}
 	return fmt.Sprintf("- %s\n", e.Summary)
-}
-
-func printEvent(e *calendar.Event, loc *time.Location) {
-	fmt.Print(renderEvent(e, loc))
 }

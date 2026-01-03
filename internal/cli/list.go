@@ -83,10 +83,6 @@ func groupTasksBySection(items []*tasks.Task, filter string) (map[string][]taskR
 			continue
 		}
 
-		if item.Status == "completed" {
-			// ListTasksWithOptions may still return completed; honor filter later.
-		}
-
 		sectionName := "General"
 		if parent, ok := sectionIDs[item.Parent]; ok {
 			sectionName = parent
