@@ -578,7 +578,6 @@ func (m *tuiModel) detailsView() string {
 		fmt.Sprintf("List: %s", task.ListName),
 		fmt.Sprintf("Section: %s", task.Section),
 		fmt.Sprintf("Due: %s", dueText),
-		fmt.Sprintf("ID: %s", task.ID),
 	}
 	return strings.Join(lines, "\n")
 }

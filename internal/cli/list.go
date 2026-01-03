@@ -137,6 +137,6 @@ func printTasks(tasks []taskRow) {
 			dueText = fmt.Sprintf(" (due %s)", t.Due.Format("2006-01-02"))
 		}
 		title := recurringTitle(t.Title, t.Recurrence)
-		fmt.Printf("- %s %s%s\n", title, gray("["+t.ID+"]"), dueText)
+		fmt.Printf("- %s%s\n", title, dueText)
 	}
 }
