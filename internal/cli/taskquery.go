@@ -1,0 +1,323 @@
+package cli
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/list"
+	"google.golang.org/api/tasks/v1"
+
+	"justdoit/internal/metadata"
+)
+
+type TaskProvider interface {
+	ListTasks(listID string, showCompleted bool) ([]*tasks.Task, error)
+	ListTasksWithOptions(listID string, showCompleted, showHidden, showDeleted bool, updatedMin string) ([]*tasks.Task, error)
+}
+
+type queryContext struct {
+	Tasks    TaskProvider
+	Lists    map[string]string
+	Location *time.Location
+	Now      func() time.Time
+}
+
+func newQueryContext(app *App) queryContext {
+	now := func() time.Time {
+		if app == nil || app.Location == nil {
+			return time.Now()
+		}
+		return time.Now().In(app.Location)
+	}
+	if app == nil {
+		return queryContext{Now: now}
+	}
+	return queryContext{
+		Tasks:    app.Tasks,
+		Lists:    app.Config.Lists,
+		Location: app.Location,
+		Now:      now,
+	}
+}
+
+func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
+	if ctx.Tasks == nil {
+		return nil, fmt.Errorf("task client is not initialized")
+	}
+	if ctx.Location == nil {
+		ctx.Location = time.Local
+	}
+	if ctx.Now == nil {
+		ctx.Now = func() time.Time { return time.Now().In(ctx.Location) }
+	}
+	now := ctx.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, ctx.Location)
+	todayEnd := todayStart.AddDate(0, 0, 1)
+	weekStart := weekStartDate(todayStart)
+	weekEnd := weekStart.AddDate(0, 0, 7)
+	nextWeekEnd := weekEnd.AddDate(0, 0, 7)
+
+	type bucket struct {
+		name  string
+		tasks []taskItem
+	}
+	buckets := []bucket{
+		{name: "Overdue"},
+		{name: "Today"},
+		{name: "This week"},
+		{name: "Next week"},
+	}
+	var backlog []taskItem
+
+	listNames := sortedListNames(ctx.Lists)
+	if len(listNames) == 0 {
+		return nil, fmt.Errorf("no lists configured")
+	}
+
+	for _, listName := range listNames {
+		listID := ctx.Lists[listName]
+		items, err := ctx.Tasks.ListTasks(listID, false)
+		if err != nil {
+			return nil, err
+		}
+		sections := buildSectionIndex(items)
+		for _, item := range items {
+			if item == nil || item.Status == "completed" {
+				continue
+			}
+			if isSectionTask(item) {
+				continue
+			}
+			section := resolveSectionName(item, sections)
+			if item.Due == "" {
+				if showBacklog {
+					rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
+					backlog = append(backlog, taskItem{
+						ID:         item.Id,
+						TitleVal:   item.Title,
+						ListName:   listName,
+						ListID:     listID,
+						Section:    section,
+						HasDue:     false,
+						Recurrence: rule,
+					})
+				}
+				continue
+			}
+			due, err := time.Parse(time.RFC3339, item.Due)
+			if err != nil {
+				continue
+			}
+			due = due.In(ctx.Location)
+			rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
+			row := taskItem{
+				ID:         item.Id,
+				TitleVal:   item.Title,
+				ListName:   listName,
+				ListID:     listID,
+				Section:    section,
+				Due:        due,
+				HasDue:     true,
+				Recurrence: rule,
+			}
+
+			switch {
+			case due.Before(todayStart):
+				buckets[0].tasks = append(buckets[0].tasks, row)
+			case due.Before(todayEnd):
+				buckets[1].tasks = append(buckets[1].tasks, row)
+			case due.Before(weekEnd):
+				buckets[2].tasks = append(buckets[2].tasks, row)
+			case due.Before(nextWeekEnd):
+				buckets[3].tasks = append(buckets[3].tasks, row)
+			}
+		}
+	}
+
+	items := []list.Item{}
+	for _, b := range buckets {
+		if len(b.tasks) == 0 {
+			continue
+		}
+		sort.SliceStable(b.tasks, func(i, j int) bool {
+			if b.tasks[i].Due.Equal(b.tasks[j].Due) {
+				if b.tasks[i].ListName == b.tasks[j].ListName {
+					return b.tasks[i].TitleVal < b.tasks[j].TitleVal
+				}
+				return b.tasks[i].ListName < b.tasks[j].ListName
+			}
+			return b.tasks[i].Due.Before(b.tasks[j].Due)
+		})
+		items = append(items, taskItem{TitleVal: b.name, IsHeader: true})
+		for _, t := range b.tasks {
+			items = append(items, t)
+		}
+	}
+	if len(items) == 0 {
+		items = append(items, taskItem{TitleVal: "(no pending tasks)", IsHeader: true})
+	}
+	if showBacklog && len(backlog) > 0 {
+		sort.SliceStable(backlog, func(i, j int) bool {
+			if backlog[i].ListName == backlog[j].ListName {
+				return backlog[i].TitleVal < backlog[j].TitleVal
+			}
+			return backlog[i].ListName < backlog[j].ListName
+		})
+		items = append(items, taskItem{TitleVal: "Backlog (no date)", IsHeader: true})
+		for _, t := range backlog {
+			items = append(items, t)
+		}
+	}
+	return items, nil
+}
+
+func searchTasks(ctx queryContext, query, listFilter string, includeCompleted bool) ([]taskItem, error) {
+	if ctx.Tasks == nil {
+		return nil, fmt.Errorf("task client is not initialized")
+	}
+	if ctx.Location == nil {
+		ctx.Location = time.Local
+	}
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+
+	listMap := map[string]string{}
+	listFilter = strings.TrimSpace(listFilter)
+	if listFilter != "" {
+		if id, ok := ctx.Lists[listFilter]; ok {
+			listMap[listFilter] = id
+		} else {
+			listMap[listFilter] = listFilter
+		}
+	} else {
+		for name, id := range ctx.Lists {
+			listMap[name] = id
+		}
+	}
+	if len(listMap) == 0 {
+		return nil, fmt.Errorf("no lists configured")
+	}
+
+	listNames := make([]string, 0, len(listMap))
+	for name := range listMap {
+		listNames = append(listNames, name)
+	}
+	sort.Strings(listNames)
+
+	results := []taskItem{}
+	for _, listName := range listNames {
+		listID := listMap[listName]
+		items, err := ctx.Tasks.ListTasksWithOptions(listID, true, true, false, "")
+		if err != nil {
+			return nil, err
+		}
+		sections := buildSectionIndex(items)
+		for _, item := range items {
+			if item == nil || isSectionTask(item) {
+				continue
+			}
+			if !includeCompleted && item.Status == "completed" {
+				continue
+			}
+			section := resolveSectionName(item, sections)
+			if !matchesSearch(needle, item, section) {
+				continue
+			}
+			var due time.Time
+			hasDue := false
+			if item.Due != "" {
+				if parsed, err := time.Parse(time.RFC3339, item.Due); err == nil {
+					due = parsed.In(ctx.Location)
+					hasDue = true
+				}
+			}
+			recurrence := ""
+			if rule, ok := metadata.Extract(item.Notes, "justdoit_rrule"); ok {
+				recurrence = rule
+			}
+			results = append(results, taskItem{
+				ID:         item.Id,
+				TitleVal:   item.Title,
+				ListName:   listName,
+				ListID:     listID,
+				Section:    section,
+				Due:        due,
+				HasDue:     hasDue,
+				Recurrence: recurrence,
+			})
+		}
+	}
+
+	sortSearchResults(results)
+	return results, nil
+}
+
+func sortedListNames(lists map[string]string) []string {
+	names := make([]string, 0, len(lists))
+	for name := range lists {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func buildSectionIndex(items []*tasks.Task) map[string]string {
+	sections := map[string]string{}
+	for _, item := range items {
+		if isSectionTask(item) {
+			sections[item.Id] = strings.TrimSpace(item.Title)
+		}
+	}
+	return sections
+}
+
+func resolveSectionName(item *tasks.Task, sections map[string]string) string {
+	if item == nil {
+		return "General"
+	}
+	if section, ok := sections[item.Parent]; ok && section != "" {
+		return section
+	}
+	return "General"
+}
+
+func isSectionTask(item *tasks.Task) bool {
+	if item == nil {
+		return false
+	}
+	_, ok := metadata.Extract(item.Notes, "justdoit_section")
+	return ok
+}
+
+func matchesSearch(query string, item *tasks.Task, section string) bool {
+	if item == nil {
+		return false
+	}
+	title := strings.ToLower(item.Title)
+	notes := strings.ToLower(stripMetadataNotes(item.Notes))
+	section = strings.ToLower(section)
+	return strings.Contains(title, query) || strings.Contains(notes, query) || strings.Contains(section, query)
+}
+
+func sortSearchResults(results []taskItem) {
+	sort.SliceStable(results, func(i, j int) bool {
+		a := results[i]
+		b := results[j]
+		if a.HasDue != b.HasDue {
+			return a.HasDue
+		}
+		if a.HasDue && b.HasDue {
+			if !a.Due.Equal(b.Due) {
+				return a.Due.Before(b.Due)
+			}
+		}
+		if a.ListName != b.ListName {
+			return a.ListName < b.ListName
+		}
+		return strings.ToLower(a.TitleVal) < strings.ToLower(b.TitleVal)
+	})
+}

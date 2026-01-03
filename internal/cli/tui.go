@@ -12,7 +12,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"justdoit/internal/metadata"
 	"justdoit/internal/sync"
 	"justdoit/internal/timeparse"
 )
@@ -121,6 +120,7 @@ type tuiModel struct {
 	listCtx     listContext
 	showAll     bool
 	showBacklog bool
+	nextLoading bool
 	status      string
 
 	weekData        weekData
@@ -315,6 +315,17 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tasksList = newTasksListModel(buildSearchItems(msg.results), "Results")
 		m.setSizes()
 		return m, nil
+	case nextItemsMsg:
+		m.nextLoading = false
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			m.tasksList = newTasksListModel(errorItems(msg.err), "Next")
+			m.setSizes()
+			return m, nil
+		}
+		m.tasksList = newTasksListModel(msg.items, "Next")
+		m.setSizes()
+		return m, nil
 	case okMsg, errMsg, weekDataMsg, calendarListMsg, taskToggleMsg:
 		return m.handleMessage(msg)
 	}
@@ -331,8 +342,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.listCtx = listCtxToday
 				m.showAll = false
 				m.showBacklog = true
-				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
-				m.setSizes()
+				return m.startNextLoad()
 			case "Search":
 				m.openSearch()
 			case "Week":
@@ -550,7 +560,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch key.String() {
 			case "b":
 				m.showBacklog = !m.showBacklog
-				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
+				nextModel, nextCmd := m.startNextLoad()
+				return nextModel, nextCmd
 			case " ":
 				return m, m.completeSelectedTaskCmd()
 			case "e", "enter":
@@ -744,7 +755,11 @@ func (m tuiModel) View() string {
 		}
 		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(hint) + status)
 	case stateTodayTasks:
-		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • s: snooze • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back") + status)
+		hint := "space: done • e: edit • s: snooze • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back"
+		if m.nextLoading {
+			hint += " • loading…"
+		}
+		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray(hint) + status)
 	case stateAgendaDetails:
 		return padding.Render(renderHeader("Schedule") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
@@ -920,8 +935,7 @@ func (m *tuiModel) restoreFromQuickCapture() {
 func (m *tuiModel) refreshAfterQuickCapture() (tuiModel, tea.Cmd) {
 	switch m.state {
 	case stateTodayTasks:
-		m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
-		return *m, nil
+		return m.startNextLoad()
 	case stateListTasks:
 		items, _ := buildListItems(m.app, m.listName, m.showAll)
 		m.tasksList = newTasksListModel(items, m.listName)
@@ -940,6 +954,32 @@ func (m *tuiModel) refreshAfterQuickCapture() (tuiModel, tea.Cmd) {
 	default:
 		return *m, nil
 	}
+}
+
+func (m tuiModel) nextItemsCmd(showBacklog bool) tea.Cmd {
+	ctx := newQueryContext(m.app)
+	return func() tea.Msg {
+		items, err := buildNextItems(ctx, showBacklog)
+		return nextItemsMsg{items: items, err: err}
+	}
+}
+
+func (m *tuiModel) startNextLoad() (tuiModel, tea.Cmd) {
+	m.nextLoading = true
+	m.tasksList = newTasksListModel(loadingItems("Loading..."), "Next")
+	m.setSizes()
+	return *m, m.nextItemsCmd(m.showBacklog)
+}
+
+func loadingItems(label string) []list.Item {
+	return []list.Item{taskItem{TitleVal: label, IsHeader: true}}
+}
+
+func errorItems(err error) []list.Item {
+	if err == nil {
+		return loadingItems("(error)")
+	}
+	return []list.Item{taskItem{TitleVal: err.Error(), IsHeader: true}}
 }
 
 func newListSelect(app *App) list.Model {
@@ -1187,6 +1227,11 @@ type taskToggleMsg struct {
 	Completed bool
 }
 
+type nextItemsMsg struct {
+	items []list.Item
+	err   error
+}
+
 func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case okMsg:
@@ -1196,7 +1241,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			switch m.listCtx {
 			case listCtxToday:
 				m.state = stateTodayTasks
-				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
+				return m.startNextLoad()
 			case listCtxWeek:
 				m.state = stateWeekView
 				m.weekLoading = true
@@ -1223,7 +1268,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			switch m.listCtx {
 			case listCtxToday:
 				m.state = stateTodayTasks
-				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
+				return m.startNextLoad()
 			case listCtxWeek:
 				m.state = stateWeekView
 				m.weekLoading = true
@@ -1246,7 +1291,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			items, _ := buildListItems(m.app, m.listName, m.showAll)
 			m.tasksList = newTasksListModel(items, m.listName)
 		case stateTodayTasks:
-			m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
+			return m.startNextLoad()
 		case stateSearch:
 			if strings.TrimSpace(m.searchQuery) == "" {
 				m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
@@ -1332,133 +1377,6 @@ func buildListItems(app *App, listName string, all bool) ([]list.Item, error) {
 		}
 	}
 	return result, nil
-}
-
-func buildNextItems(app *App, showBacklog bool) []list.Item {
-	now := time.Now().In(app.Location)
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, app.Location)
-	todayEnd := todayStart.AddDate(0, 0, 1)
-	weekStart := weekStartDate(todayStart)
-	weekEnd := weekStart.AddDate(0, 0, 7)
-	nextWeekEnd := weekEnd.AddDate(0, 0, 7)
-
-	type bucket struct {
-		name  string
-		tasks []taskItem
-	}
-	buckets := []bucket{
-		{name: "Overdue"},
-		{name: "Today"},
-		{name: "This week"},
-		{name: "Next week"},
-	}
-	var backlog []taskItem
-
-	for listName, listID := range app.Config.Lists {
-		items, err := app.Tasks.ListTasks(listID, false)
-		if err != nil {
-			return []list.Item{taskItem{TitleVal: err.Error(), IsHeader: true}}
-		}
-		sections := map[string]string{}
-		for _, item := range items {
-			if item == nil {
-				continue
-			}
-			if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
-				sections[item.Id] = item.Title
-			}
-		}
-		for _, item := range items {
-			if item == nil || item.Status == "completed" {
-				continue
-			}
-			if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
-				continue
-			}
-			section := "General"
-			if parent, ok := sections[item.Parent]; ok {
-				section = parent
-			}
-			if item.Due == "" {
-				if showBacklog {
-					rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
-					backlog = append(backlog, taskItem{
-						ID:         item.Id,
-						TitleVal:   item.Title,
-						ListName:   listName,
-						ListID:     listID,
-						Section:    section,
-						HasDue:     false,
-						Recurrence: rule,
-					})
-				}
-				continue
-			}
-			due, err := time.Parse(time.RFC3339, item.Due)
-			if err != nil {
-				continue
-			}
-			due = due.In(app.Location)
-			rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
-			row := taskItem{
-				ID:         item.Id,
-				TitleVal:   item.Title,
-				ListName:   listName,
-				ListID:     listID,
-				Section:    section,
-				Due:        due,
-				HasDue:     true,
-				Recurrence: rule,
-			}
-
-			switch {
-			case due.Before(todayStart):
-				buckets[0].tasks = append(buckets[0].tasks, row)
-			case due.Before(todayEnd):
-				buckets[1].tasks = append(buckets[1].tasks, row)
-			case due.Before(weekEnd):
-				buckets[2].tasks = append(buckets[2].tasks, row)
-			case due.Before(nextWeekEnd):
-				buckets[3].tasks = append(buckets[3].tasks, row)
-			}
-		}
-	}
-
-	items := []list.Item{}
-	for _, b := range buckets {
-		if len(b.tasks) == 0 {
-			continue
-		}
-		sort.SliceStable(b.tasks, func(i, j int) bool {
-			if b.tasks[i].Due.Equal(b.tasks[j].Due) {
-				if b.tasks[i].ListName == b.tasks[j].ListName {
-					return b.tasks[i].TitleVal < b.tasks[j].TitleVal
-				}
-				return b.tasks[i].ListName < b.tasks[j].ListName
-			}
-			return b.tasks[i].Due.Before(b.tasks[j].Due)
-		})
-		items = append(items, taskItem{TitleVal: b.name, IsHeader: true})
-		for _, t := range b.tasks {
-			items = append(items, t)
-		}
-	}
-	if len(items) == 0 {
-		items = append(items, taskItem{TitleVal: "(no pending tasks)", IsHeader: true})
-	}
-	if showBacklog && len(backlog) > 0 {
-		sort.SliceStable(backlog, func(i, j int) bool {
-			if backlog[i].ListName == backlog[j].ListName {
-				return backlog[i].TitleVal < backlog[j].TitleVal
-			}
-			return backlog[i].ListName < backlog[j].ListName
-		})
-		items = append(items, taskItem{TitleVal: "Backlog (no date)", IsHeader: true})
-		for _, t := range backlog {
-			items = append(items, t)
-		}
-	}
-	return items
 }
 
 func orderTaskRows(rows []taskRow) []taskRow {

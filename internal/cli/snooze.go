@@ -62,8 +62,7 @@ func (m *tuiModel) restoreFromSnooze() {
 func (m *tuiModel) refreshAfterSnooze() (tuiModel, tea.Cmd) {
 	switch m.state {
 	case stateTodayTasks:
-		m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
-		return *m, nil
+		return m.startNextLoad()
 	case stateListTasks:
 		items, _ := buildListItems(m.app, m.listName, m.showAll)
 		m.tasksList = newTasksListModel(items, m.listName)

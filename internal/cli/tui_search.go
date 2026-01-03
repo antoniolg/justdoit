@@ -49,7 +49,7 @@ func (s searchItem) FilterValue() string {
 
 func (m tuiModel) searchCmd(query, list string, includeCompleted bool) tea.Cmd {
 	return func() tea.Msg {
-		results, err := searchTasks(m.app, query, list, includeCompleted)
+		results, err := searchTasks(newQueryContext(m.app), query, list, includeCompleted)
 		return searchMsg{results: results, err: err}
 	}
 }
@@ -96,8 +96,7 @@ func (m *tuiModel) restoreFromSearch() {
 func (m *tuiModel) refreshAfterSearch() (tuiModel, tea.Cmd) {
 	switch m.state {
 	case stateTodayTasks:
-		m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
-		return *m, nil
+		return m.startNextLoad()
 	case stateListTasks:
 		items, _ := buildListItems(m.app, m.listName, m.showAll)
 		m.tasksList = newTasksListModel(items, m.listName)

@@ -2,7 +2,7 @@ BINARY=justdoit
 PREFIX=/opt/homebrew/bin
 CONFIG_DIR=$(HOME)/.config/justdoit
 
-.PHONY: build install setup reset tidy
+.PHONY: build install setup reset tidy lint test
 
 build:
 	go build -o $(BINARY) ./cmd/justdoit
@@ -18,3 +18,9 @@ reset:
 
 tidy:
 	go mod tidy
+
+lint:
+	golangci-lint run
+
+test:
+	go test ./...
