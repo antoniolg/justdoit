@@ -162,9 +162,9 @@ type tuiModel struct {
 func startTUI(app *App) error {
 	menu := list.New([]list.Item{
 		menuItem("Next"),
-		menuItem("Search"),
 		menuItem("Week"),
 		menuItem("Lists"),
+		menuItem("Search"),
 		menuItem("New Task"),
 		menuItem("Quit"),
 	}, list.NewDefaultDelegate(), 0, 0)
