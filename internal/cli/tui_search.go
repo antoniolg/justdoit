@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -46,9 +47,9 @@ func (s searchItem) FilterValue() string {
 	return strings.TrimSpace(s.Task.TitleVal + " " + s.Task.Section + " " + s.Task.ListName)
 }
 
-func (m tuiModel) searchCmd(query string) tea.Cmd {
+func (m tuiModel) searchCmd(query, list string, includeCompleted bool) tea.Cmd {
 	return func() tea.Msg {
-		results, err := searchTasks(m.app, query, "", false)
+		results, err := searchTasks(m.app, query, list, includeCompleted)
 		return searchMsg{results: results, err: err}
 	}
 }
@@ -79,6 +80,8 @@ func (m *tuiModel) openSearch() {
 	m.searchInput.Focus()
 	m.searchFocus = focusSearchInput
 	m.searchQuery = ""
+	m.searchList = ""
+	m.searchIncludeCompleted = false
 	m.searchLoading = false
 	m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
 	m.setSizes()
@@ -106,4 +109,31 @@ func (m *tuiModel) refreshAfterSearch() (tuiModel, tea.Cmd) {
 	default:
 		return *m, nil
 	}
+}
+
+func (m *tuiModel) cycleSearchList() {
+	options := m.searchListOptions()
+	if len(options) == 0 {
+		m.searchList = ""
+		return
+	}
+	current := m.searchList
+	idx := 0
+	for i, option := range options {
+		if option == current {
+			idx = i
+			break
+		}
+	}
+	idx = (idx + 1) % len(options)
+	m.searchList = options[idx]
+}
+
+func (m *tuiModel) searchListOptions() []string {
+	names := make([]string, 0, len(m.app.Config.Lists))
+	for name := range m.app.Config.Lists {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return append([]string{""}, names...)
 }

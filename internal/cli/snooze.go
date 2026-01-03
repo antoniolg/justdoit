@@ -78,7 +78,7 @@ func (m *tuiModel) refreshAfterSnooze() (tuiModel, tea.Cmd) {
 			return *m, nil
 		}
 		m.searchLoading = true
-		return *m, m.searchCmd(m.searchQuery)
+		return *m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
 	default:
 		return *m, nil
 	}

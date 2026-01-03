@@ -142,16 +142,18 @@ type tuiModel struct {
 	quickReturnState   tuiState
 	quickReturnListCtx listContext
 
-	snoozeInput         textinput.Model
-	snoozeTask          taskItem
-	snoozeReturnState   tuiState
-	snoozeReturnListCtx listContext
-	searchInput         textinput.Model
-	searchFocus         searchFocus
-	searchQuery         string
-	searchReturnState   tuiState
-	searchReturnListCtx listContext
-	searchLoading       bool
+	snoozeInput            textinput.Model
+	snoozeTask             taskItem
+	snoozeReturnState      tuiState
+	snoozeReturnListCtx    listContext
+	searchInput            textinput.Model
+	searchFocus            searchFocus
+	searchQuery            string
+	searchList             string
+	searchIncludeCompleted bool
+	searchReturnState      tuiState
+	searchReturnListCtx    listContext
+	searchLoading          bool
 
 	winW int
 	winH int
@@ -473,7 +475,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.searchLoading = true
 					m.searchFocus = focusSearchList
 					m.searchInput.Blur()
-					return m, m.searchCmd(query)
+					return m, m.searchCmd(query, m.searchList, m.searchIncludeCompleted)
 				}
 				return m, m.editSelectedTaskCmd()
 			case " ":
@@ -499,6 +501,20 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.prepareDelete()
 					return m, nil
 				}
+			case "l":
+				m.cycleSearchList()
+				if strings.TrimSpace(m.searchQuery) != "" {
+					m.searchLoading = true
+					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+				}
+				return m, nil
+			case "a":
+				m.searchIncludeCompleted = !m.searchIncludeCompleted
+				if strings.TrimSpace(m.searchQuery) != "" {
+					m.searchLoading = true
+					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+				}
+				return m, nil
 			}
 		}
 		return m, cmd
@@ -745,11 +761,20 @@ func (m tuiModel) View() string {
 		if m.searchLoading {
 			body = "Searching..."
 		}
-		hint := "enter: search • tab: results • esc: back • ctrl+n: capture"
-		if m.searchFocus == focusSearchList {
-			hint = "tab: search • space: done • e/enter: edit • s: snooze • d: delete • esc: back • ctrl+n: capture"
+		listLabel := "All"
+		if strings.TrimSpace(m.searchList) != "" {
+			listLabel = m.searchList
 		}
-		return padding.Render(renderHeader("Search") + "\n\n" + input + "\n\n" + body + "\n\n" + gray(hint) + status)
+		completeLabel := "No"
+		if m.searchIncludeCompleted {
+			completeLabel = "Yes"
+		}
+		filters := fmt.Sprintf("List: %s • Completed: %s", listLabel, completeLabel)
+		hint := "enter: search • tab: results • l: list • a: completed • esc: back • ctrl+n: capture"
+		if m.searchFocus == focusSearchList {
+			hint = "tab: search • space: done • e/enter: edit • s: snooze • d: delete • l: list • a: completed • esc: back • ctrl+n: capture"
+		}
+		return padding.Render(renderHeader("Search") + "\n\n" + input + "\n" + gray(filters) + "\n\n" + body + "\n\n" + gray(hint) + status)
 	default:
 		return ""
 	}
@@ -847,7 +872,7 @@ func (m *tuiModel) refreshAfterQuickCapture() (tuiModel, tea.Cmd) {
 			return *m, nil
 		}
 		m.searchLoading = true
-		return *m, m.searchCmd(m.searchQuery)
+		return *m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
 	default:
 		return *m, nil
 	}
@@ -1074,7 +1099,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 					m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
 				} else {
 					m.searchLoading = true
-					return m, m.searchCmd(m.searchQuery)
+					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
 				}
 			default:
 				if m.listName != "" {
@@ -1101,7 +1126,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 					m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
 				} else {
 					m.searchLoading = true
-					return m, m.searchCmd(m.searchQuery)
+					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
 				}
 			default:
 				items, _ := buildListItems(m.app, m.listName, m.showAll)
@@ -1118,7 +1143,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 				m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
 			} else {
 				m.searchLoading = true
-				return m, m.searchCmd(m.searchQuery)
+				return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
 			}
 		case stateCalendarSelect:
 			m.state = stateWeekView
