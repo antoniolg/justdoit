@@ -95,7 +95,7 @@ go build -o justdoit ./cmd/justdoit
 # filter by section
 ./justdoit list --list "Work" --section "This week"
 
-# agenda view + free slots
+# schedule view + free slots
 ./justdoit view
 # view another day or range
 ./justdoit view --date "tomorrow"

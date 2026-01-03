@@ -26,7 +26,7 @@ func newViewCmd() *cobra.Command {
 	var dateStr string
 	cmd := &cobra.Command{
 		Use:   "view",
-		Short: "Show agenda with free slots",
+		Short: "Show schedule with free slots",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, err := initApp(cmd)
 			if err != nil {
@@ -84,7 +84,7 @@ func buildDayTextWithError(app *App, day time.Time) (string, error) {
 	free := agenda.FreeSlots(events, dayStart, dayEnd)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Agenda for %s\n", day.Format("2006-01-02")))
+	b.WriteString(fmt.Sprintf("Schedule for %s\n", day.Format("2006-01-02")))
 	b.WriteString("\nCalendar events:\n")
 	if len(events) == 0 {
 		b.WriteString("- (none)\n")

@@ -557,7 +557,7 @@ func (m tuiModel) View() string {
 	case stateTodayTasks:
 		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back") + status)
 	case stateAgendaDetails:
-		return padding.Render(renderHeader("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
+		return padding.Render(renderHeader("Schedule") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
 		return padding.Render(renderHeader("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:

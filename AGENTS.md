@@ -22,6 +22,7 @@
 - Use `gofmt` for all Go files (`gofmt -w cmd internal`).
 - Keep packages small and purpose‑driven under `internal/`.
 - Prefer explicit names (e.g., `CreateTaskWithParent`, `ListCalendars`).
+- Language: all code comments, UI copy, and documentation strings must be in English.
 
 ## Testing Guidelines
 - No test framework is set up yet.
