@@ -54,6 +54,7 @@ go build -o justdoit ./cmd/justdoit
 ./justdoit add "Refactor API" --time "15:00-17:00"
 
 # add a task into a section (sublist)
+# sections must exist (create with `justdoit section create`)
 # if omitted, it goes to "General"
 ./justdoit add "Write ADR" --section "This week"
 
@@ -76,6 +77,9 @@ go build -o justdoit ./cmd/justdoit
 
 # rename a section
 ./justdoit section rename "This week" "This month" --list "Work"
+
+# list sections
+./justdoit section list --list "Work"
 
 # delete a task (and linked event)
 ./justdoit delete <TASK_ID>

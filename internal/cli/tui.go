@@ -641,7 +641,7 @@ func newTaskInputs() []textinput.Model {
 	titleInput.CharLimit = 200
 
 	sectionInput := textinput.New()
-	sectionInput.Placeholder = "Section (default: General)"
+	sectionInput.Placeholder = "Section (empty = General)"
 
 	dateInput := textinput.New()
 	dateInput.Placeholder = "Date (e.g. tomorrow)"
@@ -690,8 +690,13 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 			return errMsg{err: fmt.Errorf("title is required")}
 		}
 		section := strings.TrimSpace(m.formInputs[2].Value())
-		if section == "" {
-			section = "General"
+		parentID := ""
+		if section != "" {
+			sectionTask, err := ensureSectionTask(m.app, listID, section)
+			if err != nil {
+				return errMsg{err: err}
+			}
+			parentID = sectionTask.Id
 		}
 
 		baseDate, err := timeparse.ParseDate(strings.TrimSpace(m.formInputs[3].Value()), m.app.Now, m.app.Location)
@@ -714,11 +719,6 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 			due = &endOfDay
 		}
 
-		sectionTask, err := ensureSectionTask(m.app, listID, section)
-		if err != nil {
-			return errMsg{err: err}
-		}
-
 		input := sync.CreateInput{
 			ListID:    listID,
 			Title:     title,
@@ -726,7 +726,7 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 			Due:       due,
 			TimeStart: start,
 			TimeEnd:   end,
-			ParentID:  sectionTask.Id,
+			ParentID:  parentID,
 		}
 		_, _, err = m.app.Sync.Create(input)
 		if err != nil {

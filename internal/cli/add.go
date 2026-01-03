@@ -44,12 +44,13 @@ func newAddCmd() *cobra.Command {
 				return err
 			}
 			sectionName := strings.TrimSpace(section)
-			if sectionName == "" {
-				sectionName = "General"
-			}
-			sectionTask, err := ensureSectionTask(app, listID, sectionName)
-			if err != nil {
-				return err
+			parentID := ""
+			if sectionName != "" {
+				sectionTask, err := ensureSectionTask(app, listID, sectionName)
+				if err != nil {
+					return err
+				}
+				parentID = sectionTask.Id
 			}
 			baseDate, err := timeparse.ParseDate(dateStr, app.Now, app.Location)
 			if err != nil {
@@ -91,7 +92,7 @@ func newAddCmd() *cobra.Command {
 				Recurrence: recurrence,
 				TimeStart:  start,
 				TimeEnd:    end,
-				ParentID:   sectionTask.Id,
+				ParentID:   parentID,
 			}
 			_, event, err := app.Sync.Create(input)
 			if err != nil {
@@ -108,7 +109,7 @@ func newAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&dateStr, "date", "", "Due date (natural language, e.g. 'tomorrow')")
 	cmd.Flags().StringVar(&every, "every", "", "Recurrence (e.g. 'daily', 'weekly')")
 	cmd.Flags().StringVar(&timeStr, "time", "", "Time block (HH:MM-HH:MM or 1h)")
-	cmd.Flags().StringVar(&section, "section", "General", "Section (sublist) name")
+	cmd.Flags().StringVar(&section, "section", "", "Section (sublist) name")
 	cmd.Flags().StringVar(&notes, "notes", "", "Notes for the task")
 	return cmd
 }

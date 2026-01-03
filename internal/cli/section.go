@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,6 +17,7 @@ func newSectionCmd() *cobra.Command {
 		Short: "Manage task sections",
 	}
 	cmd.AddCommand(newSectionCreateCmd())
+	cmd.AddCommand(newSectionListCmd())
 	cmd.AddCommand(newSectionRenameCmd())
 	return cmd
 }
@@ -54,6 +56,62 @@ func newSectionCreateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&list, "list", "", "List name (mapped via config.json)")
+	return cmd
+}
+
+func newSectionListCmd() *cobra.Command {
+	var (
+		list   string
+		showID bool
+	)
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List sections in a task list",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := initApp(cmd)
+			if err != nil {
+				return err
+			}
+			listID, err := resolveListID(app, list, list != "")
+			if err != nil {
+				return err
+			}
+			items, err := app.Tasks.ListTasks(listID, false)
+			if err != nil {
+				return err
+			}
+			sections := []string{}
+			sectionByTitle := map[string]*tasks.Task{}
+			for _, item := range items {
+				if item == nil {
+					continue
+				}
+				if _, ok := metadata.Extract(item.Notes, "justdoit_section"); !ok {
+					continue
+				}
+				if _, exists := sectionByTitle[item.Title]; exists {
+					continue
+				}
+				sectionByTitle[item.Title] = item
+				sections = append(sections, item.Title)
+			}
+			if len(sections) == 0 {
+				fmt.Println("(no sections)")
+				return nil
+			}
+			sort.Strings(sections)
+			for _, name := range sections {
+				if showID {
+					fmt.Printf("- %s [%s]\n", name, sectionByTitle[name].Id)
+				} else {
+					fmt.Printf("- %s\n", name)
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&list, "list", "", "List name (mapped via config.json)")
+	cmd.Flags().BoolVar(&showID, "ids", false, "Show section IDs")
 	return cmd
 }
 

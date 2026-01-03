@@ -63,16 +63,20 @@ func updateTaskWithParams(app *App, listID, taskID string, params UpdateParams) 
 	if params.HasSection {
 		sectionName := strings.TrimSpace(params.Section)
 		if sectionName == "" {
-			sectionName = "General"
+			if _, err := app.Tasks.MoveTask(listID, taskID, ""); err != nil {
+				return result, err
+			}
+			result.SectionChanged = true
+		} else {
+			sectionTask, err := ensureSectionTask(app, listID, sectionName)
+			if err != nil {
+				return result, err
+			}
+			if _, err := app.Tasks.MoveTask(listID, taskID, sectionTask.Id); err != nil {
+				return result, err
+			}
+			result.SectionChanged = true
 		}
-		sectionTask, err := ensureSectionTask(app, listID, sectionName)
-		if err != nil {
-			return result, err
-		}
-		if _, err := app.Tasks.MoveTask(listID, taskID, sectionTask.Id); err != nil {
-			return result, err
-		}
-		result.SectionChanged = true
 	}
 
 	if params.HasTime || params.HasDate || params.HasTitle {
@@ -335,9 +339,5 @@ func ensureSectionTask(app *App, listID, section string) (*tasks.Task, error) {
 			return item, nil
 		}
 	}
-	task := &tasks.Task{
-		Title: section,
-		Notes: metadata.Append("", "justdoit_section", "1"),
-	}
-	return app.Tasks.CreateTask(listID, task)
+	return nil, fmt.Errorf("section not found: %s (create it with `justdoit section create \"%s\"`)", section, section)
 }
