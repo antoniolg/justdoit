@@ -35,6 +35,7 @@ const (
 	stateConfirmDelete
 	stateCalendarSelect
 	stateQuickCapture
+	stateSnooze
 )
 
 const (
@@ -138,6 +139,11 @@ type tuiModel struct {
 	quickInput         textinput.Model
 	quickReturnState   tuiState
 	quickReturnListCtx listContext
+
+	snoozeInput         textinput.Model
+	snoozeTask          taskItem
+	snoozeReturnState   tuiState
+	snoozeReturnListCtx listContext
 
 	winW int
 	winH int
@@ -249,6 +255,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateQuickCapture:
 				m.restoreFromQuickCapture()
 				return m, nil
+			case stateSnooze:
+				m.restoreFromSnooze()
+				return m, nil
 			default:
 				m.state = stateMenu
 				return m, nil
@@ -265,6 +274,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "✅ Task created"
 		m.restoreFromQuickCapture()
 		return m.refreshAfterQuickCapture()
+	case snoozeMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.status = "✅ Task rescheduled"
+		m.restoreFromSnooze()
+		return m.refreshAfterSnooze()
 	case okMsg, errMsg, weekDataMsg, calendarListMsg, taskToggleMsg:
 		return m.handleMessage(msg)
 	}
@@ -335,6 +352,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.completeWeekTaskCmd()
 			case "e", "enter":
 				return m, m.editWeekTaskCmd()
+			case "s":
+				task, ok := m.selectedWeekTask()
+				if !ok {
+					m.status = "Select a task to snooze"
+					return m, nil
+				}
+				m.openSnooze(task)
+				return m, nil
 			case "d":
 				m.prepareDeleteWeekTask()
 				return m, nil
@@ -374,6 +399,21 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, cmd
+	case stateSnooze:
+		var cmd tea.Cmd
+		m.snoozeInput, cmd = m.snoozeInput.Update(msg)
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "enter":
+				value := strings.TrimSpace(m.snoozeInput.Value())
+				if value == "" {
+					m.status = "date or time is required"
+					return m, nil
+				}
+				return m, m.snoozeCmd(m.snoozeTask, value)
+			}
+		}
+		return m, cmd
 	case stateTodayTasks:
 		var cmd tea.Cmd
 		m.tasksList, cmd = m.tasksList.Update(msg)
@@ -386,6 +426,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.completeSelectedTaskCmd()
 			case "e", "enter":
 				return m, m.editSelectedTaskCmd()
+			case "s":
+				task, ok := m.selectedTask()
+				if !ok {
+					m.status = "Select a task to snooze"
+					return m, nil
+				}
+				m.openSnooze(task)
+				return m, nil
 			case "d":
 				m.prepareDelete()
 				return m, nil
@@ -436,6 +484,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.completeSelectedTaskCmd()
 			case "e", "enter":
 				return m, m.editSelectedTaskCmd()
+			case "s":
+				task, ok := m.selectedTask()
+				if !ok {
+					m.status = "Select a task to snooze"
+					return m, nil
+				}
+				m.openSnooze(task)
+				return m, nil
 			case "d":
 				m.prepareDelete()
 				return m, nil
@@ -549,19 +605,19 @@ func (m tuiModel) View() string {
 	case stateMenu:
 		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
 	case stateWeekView:
-		hint := "tab: switch • ←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • d: delete • n: new task • c: calendars • r: refresh • ctrl+n: capture • esc: back"
+		hint := "tab: switch • ←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • s: snooze • d: delete • n: new task • c: calendars • r: refresh • ctrl+n: capture • esc: back"
 		if m.weekRefreshing {
 			hint += " • refreshing…"
 		}
 		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(hint) + status)
 	case stateTodayTasks:
-		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back") + status)
+		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • s: snooze • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back") + status)
 	case stateAgendaDetails:
 		return padding.Render(renderHeader("Schedule") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
 		return padding.Render(renderHeader("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:
-		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • a: all • esc: back") + status)
+		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • s: snooze • d: delete • n: new task • a: all • esc: back") + status)
 	case stateNewTaskList:
 		return padding.Render(renderHeader("Choose list") + "\n\n" + m.listSelect.View() + status)
 	case stateTaskForm:
@@ -583,6 +639,15 @@ func (m tuiModel) View() string {
 			"Example: Call John #Work ::❤️ Current @tomorrow @15:00-16:00 every:weekly",
 		}
 		return padding.Render(renderHeader("Quick capture") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray("enter: save • esc: cancel"))
+	case stateSnooze:
+		input := m.snoozeInput.View()
+		if strings.TrimSpace(input) == "" {
+			input = m.snoozeInput.Placeholder
+		}
+		legend := []string{
+			"Examples: tomorrow • next monday • 15:00-16:00 • 1h",
+		}
+		return padding.Render(renderHeader("Snooze") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray("enter: save • esc: cancel"))
 	default:
 		return ""
 	}
