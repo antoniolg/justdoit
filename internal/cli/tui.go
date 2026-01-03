@@ -578,7 +578,11 @@ func (m tuiModel) View() string {
 		if strings.TrimSpace(input) == "" {
 			input = m.quickInput.Placeholder
 		}
-		return padding.Render(renderHeader("Quick capture") + "\n\n" + input + "\n\n" + gray("enter: save • esc: cancel"))
+		legend := []string{
+			"#List  ::Section  @date  @time  every:weekly",
+			"Example: Llamar a Juan #Trabajo ::❤️ Actual @tomorrow @15:00-16:00 every:weekly",
+		}
+		return padding.Render(renderHeader("Quick capture") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray("enter: save • esc: cancel"))
 	default:
 		return ""
 	}
