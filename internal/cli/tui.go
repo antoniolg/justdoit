@@ -123,15 +123,14 @@ type tuiModel struct {
 	showBacklog bool
 	status      string
 
-	weekData         weekData
-	weekFocus        weekFocus
-	weekDayIndex     int
-	weekBacklogIndex int
-	weekEventIndex   int
-	weekAllDayIndex  int
-	weekLoading      bool
-	calendarLoading  bool
-	weekRefreshing   bool
+	weekData        weekData
+	weekFocus       weekFocus
+	weekDayIndex    int
+	weekEventIndex  int
+	weekAllDayIndex int
+	weekLoading     bool
+	calendarLoading bool
+	weekRefreshing  bool
 
 	confirmMsg  string
 	confirmTask taskItem
@@ -343,7 +342,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.weekDayIndex = -1
 				m.weekEventIndex = -1
 				m.weekAllDayIndex = -1
-				m.weekBacklogIndex = -1
 				m.weekLoading = true
 				return m, m.loadWeekDataCmd(m.app.Now)
 			case "Lists":
@@ -363,13 +361,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateWeekView:
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
-			case "tab":
-				if m.weekFocus == focusBacklog {
-					m.weekFocus = focusGrid
-				} else {
-					m.weekFocus = focusBacklog
-				}
-				return m, nil
 			case "left", "h":
 				return m, m.shiftWeekDay(-1)
 			case "right", "l":
@@ -747,7 +738,7 @@ func (m tuiModel) View() string {
 	case stateMenu:
 		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
 	case stateWeekView:
-		hint := "tab: switch • ←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • s: snooze • d: delete • n: new task • c: calendars • r: refresh • ctrl+n: capture • esc: back"
+		hint := "←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • s: snooze • d: delete • n: new task • c: calendars • r: refresh • ctrl+n: capture • esc: back"
 		if m.weekRefreshing {
 			hint += " • refreshing…"
 		}

@@ -167,35 +167,12 @@ func buildWeekDataFromCache(app *App, c *cache.Cache, weekStart time.Time) (week
 		}
 	}
 
-	backlog := make([]taskItem, 0, len(tasks))
-	for _, task := range tasks {
-		if taskHasEvent[task.ID] {
-			continue
-		}
-		backlog = append(backlog, task)
-	}
-	sort.SliceStable(backlog, func(i, j int) bool {
-		if backlog[i].HasDue && backlog[j].HasDue {
-			if backlog[i].Due.Equal(backlog[j].Due) {
-				return backlog[i].TitleVal < backlog[j].TitleVal
-			}
-			return backlog[i].Due.Before(backlog[j].Due)
-		}
-		if backlog[i].HasDue {
-			return true
-		}
-		if backlog[j].HasDue {
-			return false
-		}
-		return backlog[i].TitleVal < backlog[j].TitleVal
-	})
 	return weekData{
 		WeekStart: weekStart,
 		Days:      days,
 		Events:    eventsByDay,
 		AllDay:    allDayByDay,
 		DayCols:   dayCols,
-		Backlog:   backlog,
 		TaskByID:  taskByID,
 	}, true
 }

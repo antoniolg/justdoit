@@ -19,7 +19,6 @@ type weekFocus int
 
 const (
 	focusGrid weekFocus = iota
-	focusBacklog
 )
 
 type weekEvent struct {
@@ -41,7 +40,6 @@ type weekData struct {
 	Events    map[int][]weekEvent
 	AllDay    map[int][]weekEvent
 	DayCols   map[int]int
-	Backlog   []taskItem
 	TaskByID  map[string]taskItem
 }
 
@@ -214,22 +212,6 @@ func (m *tuiModel) shiftWeek(delta int) tea.Cmd {
 }
 
 func (m *tuiModel) moveWeekSelection(delta int) {
-	if m.weekFocus == focusBacklog {
-		count := len(m.weekData.Backlog)
-		if count == 0 {
-			m.weekBacklogIndex = -1
-			return
-		}
-		next := m.weekBacklogIndex + delta
-		if next < 0 {
-			next = 0
-		}
-		if next >= count {
-			next = count - 1
-		}
-		m.weekBacklogIndex = next
-		return
-	}
 	allDay := m.weekData.AllDay[m.weekDayIndex]
 	events := m.weekData.Events[m.weekDayIndex]
 
@@ -283,11 +265,6 @@ func (m *tuiModel) moveWeekSelection(delta int) {
 }
 
 func (m *tuiModel) ensureWeekSelection() {
-	if len(m.weekData.Backlog) == 0 {
-		m.weekBacklogIndex = -1
-	} else if m.weekBacklogIndex < 0 || m.weekBacklogIndex >= len(m.weekData.Backlog) {
-		m.weekBacklogIndex = 0
-	}
 	allDay := m.weekData.AllDay[m.weekDayIndex]
 	events := m.weekData.Events[m.weekDayIndex]
 
@@ -397,12 +374,6 @@ func (m *tuiModel) resolveTaskByID(taskID string) (taskItem, bool) {
 }
 
 func (m *tuiModel) selectedWeekTask() (taskItem, bool) {
-	if m.weekFocus == focusBacklog {
-		if len(m.weekData.Backlog) == 0 || m.weekBacklogIndex < 0 || m.weekBacklogIndex >= len(m.weekData.Backlog) {
-			return taskItem{}, false
-		}
-		return m.weekData.Backlog[m.weekBacklogIndex], true
-	}
 	event, ok := m.selectedWeekGridEvent()
 	if !ok || event.TaskID == "" {
 		return taskItem{}, false
@@ -501,33 +472,23 @@ func (m *tuiModel) weekView() string {
 	if width < 50 {
 		return "Terminal too narrow for week view"
 	}
-	leftWidth := width / 3
-	if leftWidth < 24 {
-		leftWidth = 24
-	}
-	if leftWidth > 40 {
-		leftWidth = 40
-	}
-	rightWidth := width - leftWidth - 2
+	rightWidth := width
 	bodyHeight := m.winH - 12
 	if bodyHeight < 8 {
 		bodyHeight = 8
 	}
-	leftInner := leftWidth - panelInsetX()
 	rightInner := rightWidth - panelInsetX()
 	maxInnerHeight := bodyHeight - panelInsetY()
 	if maxInnerHeight < 6 {
 		maxInnerHeight = 6
 	}
 	innerHeight := m.weekContentHeight(maxInnerHeight)
-	if leftInner < 20 || rightInner < 20 {
+	if rightInner < 20 {
 		return "Terminal too narrow for week view"
 	}
-	left := m.renderBacklog(leftInner, innerHeight)
 	right := m.renderWeekGrid(rightInner, innerHeight)
-	left = panelStyle().Width(leftWidth).Height(innerHeight + panelInsetY()).Render(left)
 	right = panelStyle().Width(rightWidth).Height(innerHeight + panelInsetY()).Render(right)
-	joined := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	joined := right
 	details := panelStyle().Width(width).Render(m.renderWeekDetails(width - panelInsetX()))
 	return joined + "\n\n" + details
 }
@@ -576,42 +537,6 @@ func (m *tuiModel) weekTimeRows() int {
 		rows = 24
 	}
 	return rows
-}
-
-func (m *tuiModel) renderBacklog(width, height int) string {
-	lines := []string{}
-	title := fmt.Sprintf("Backlog (%d)", len(m.weekData.Backlog))
-	lines = append(lines, lipgloss.NewStyle().Bold(true).Render(title))
-	lines = append(lines, "")
-	available := height - len(lines)
-	if available < 1 {
-		available = 1
-	}
-	start, end := windowRange(len(m.weekData.Backlog), m.weekBacklogIndex, available)
-	for i := start; i < end; i++ {
-		task := m.weekData.Backlog[i]
-		selected := m.weekFocus == focusBacklog && i == m.weekBacklogIndex
-		line := task.TitleVal
-		if task.HasDue {
-			dueText := task.Due.Format("01-02")
-			if selected {
-				line = fmt.Sprintf("%s %s", line, dueText)
-			} else {
-				line = fmt.Sprintf("%s %s", line, gray(dueText))
-			}
-		}
-		line = truncateText(line, width-2)
-		if selected {
-			line = lipgloss.NewStyle().Background(colorAccent).Foreground(colorAccentText).Render(line)
-		} else {
-			line = lipgloss.NewStyle().Foreground(colorMuted).Render(line)
-		}
-		lines = append(lines, line)
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	return lipgloss.NewStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func (m *tuiModel) renderWeekGrid(width, height int) string {
