@@ -13,11 +13,12 @@ import (
 )
 
 type taskRow struct {
-	ID     string
-	Title  string
-	Due    time.Time
-	HasDue bool
-	Index  int
+	ID         string
+	Title      string
+	Due        time.Time
+	HasDue     bool
+	Index      int
+	Recurrence string
 }
 
 func newListCmd() *cobra.Command {
@@ -98,6 +99,9 @@ func groupTasksBySection(items []*tasks.Task, filter string) (map[string][]taskR
 			sectionNames[sectionName] = true
 		}
 		row := taskRow{ID: item.Id, Title: item.Title, Index: i}
+		if rule, ok := metadata.Extract(item.Notes, "justdoit_rrule"); ok {
+			row.Recurrence = rule
+		}
 		if item.Due != "" {
 			if due, err := time.Parse(time.RFC3339, item.Due); err == nil {
 				row.Due = due
@@ -132,6 +136,7 @@ func printTasks(tasks []taskRow) {
 		if t.HasDue {
 			dueText = fmt.Sprintf(" (due %s)", t.Due.Format("2006-01-02"))
 		}
-		fmt.Printf("- %s %s%s\n", t.Title, gray("["+t.ID+"]"), dueText)
+		title := recurringTitle(t.Title, t.Recurrence)
+		fmt.Printf("- %s %s%s\n", title, gray("["+t.ID+"]"), dueText)
 	}
 }

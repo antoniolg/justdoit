@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"google.golang.org/api/calendar/v3"
+	"justdoit/internal/metadata"
 	"justdoit/internal/timeparse"
 )
 
@@ -382,6 +383,12 @@ func (m *tuiModel) resolveTaskByID(taskID string) (taskItem, bool) {
 			Section:  section,
 			Due:      due,
 			HasDue:   hasDue,
+			Recurrence: func() string {
+				if rule, ok := metadata.Extract(task.Notes, "justdoit_rrule"); ok {
+					return rule
+				}
+				return ""
+			}(),
 		}
 		m.weekData.TaskByID[taskID] = item
 		return item, true
@@ -794,16 +801,22 @@ func (m *tuiModel) renderWeekDetails(width int) string {
 				if task, ok := m.resolveTaskByID(ev.TaskID); ok {
 					lines = append(lines, fmt.Sprintf("List: %s", task.ListName))
 					lines = append(lines, fmt.Sprintf("Section: %s", task.Section))
+					if text := recurrenceText(task.Recurrence, m.app.Location); text != "" {
+						lines = append(lines, fmt.Sprintf("Repite: %s", text))
+					}
 				}
 			}
 		}
 	} else {
 		if task, ok := m.selectedWeekTask(); ok {
-			lines = append(lines, lipgloss.NewStyle().Bold(true).Render(task.TitleVal))
+			lines = append(lines, lipgloss.NewStyle().Bold(true).Render(recurringTitle(task.TitleVal, task.Recurrence)))
 			lines = append(lines, fmt.Sprintf("List: %s", task.ListName))
 			lines = append(lines, fmt.Sprintf("Section: %s", task.Section))
 			if task.HasDue {
 				lines = append(lines, fmt.Sprintf("Due: %s", task.Due.Format("2006-01-02")))
+			}
+			if text := recurrenceText(task.Recurrence, m.app.Location); text != "" {
+				lines = append(lines, fmt.Sprintf("Repite: %s", text))
 			}
 		}
 	}

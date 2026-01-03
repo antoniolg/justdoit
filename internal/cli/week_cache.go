@@ -146,7 +146,7 @@ func buildWeekDataFromCache(app *App, c *cache.Cache, weekStart time.Time) (week
 			dayStart := time.Date(task.Due.Year(), task.Due.Month(), task.Due.Day(), 0, 0, 0, 0, app.Location)
 			dayEnd := dayStart.AddDate(0, 0, 1)
 			event := weekEvent{
-				Summary: task.TitleVal,
+				Summary: recurringTitle(task.TitleVal, task.Recurrence),
 				TaskID:  task.ID,
 				Start:   dayStart,
 				End:     dayEnd,
@@ -302,6 +302,12 @@ func collectTasksFromCache(app *App, c *cache.Cache, start, end time.Time) ([]ta
 				Section:  section,
 				Due:      due,
 				HasDue:   hasDue,
+				Recurrence: func() string {
+					if rule, ok := metadata.Extract(entry.Notes, "justdoit_rrule"); ok {
+						return rule
+					}
+					return ""
+				}(),
 			}
 			byID[item.ID] = item
 			if !hasDue {

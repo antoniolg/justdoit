@@ -64,21 +64,22 @@ func (l listItem) Description() string { return "" }
 func (l listItem) FilterValue() string { return string(l) }
 
 type taskItem struct {
-	ID       string
-	TitleVal string
-	ListName string
-	ListID   string
-	Section  string
-	Due      time.Time
-	HasDue   bool
-	IsHeader bool
+	ID         string
+	TitleVal   string
+	ListName   string
+	ListID     string
+	Section    string
+	Due        time.Time
+	HasDue     bool
+	IsHeader   bool
+	Recurrence string
 }
 
 func (t taskItem) Title() string {
 	if t.IsHeader {
 		return lipgloss.NewStyle().Bold(true).Foreground(colorMuted).Render(t.TitleVal)
 	}
-	return t.TitleVal
+	return recurringTitle(t.TitleVal, t.Recurrence)
 }
 
 func (t taskItem) Description() string {
@@ -890,13 +891,14 @@ func buildListItems(app *App, listName string, all bool) ([]list.Item, error) {
 		result = append(result, taskItem{TitleVal: section, IsHeader: true})
 		for _, row := range orderTaskRows(rows) {
 			result = append(result, taskItem{
-				ID:       row.ID,
-				TitleVal: row.Title,
-				ListName: listName,
-				ListID:   listID,
-				Section:  section,
-				Due:      row.Due,
-				HasDue:   row.HasDue,
+				ID:         row.ID,
+				TitleVal:   row.Title,
+				ListName:   listName,
+				ListID:     listID,
+				Section:    section,
+				Due:        row.Due,
+				HasDue:     row.HasDue,
+				Recurrence: row.Recurrence,
 			})
 		}
 	}
@@ -923,12 +925,13 @@ func buildTodayItems(app *App) []list.Item {
 		rows := byList[listName]
 		for _, t := range rows {
 			items = append(items, taskItem{
-				ID:       t.ID,
-				TitleVal: t.Title,
-				ListName: listName,
-				ListID:   listID,
-				Due:      t.Due,
-				HasDue:   true,
+				ID:         t.ID,
+				TitleVal:   t.Title,
+				ListName:   listName,
+				ListID:     listID,
+				Due:        t.Due,
+				HasDue:     true,
+				Recurrence: t.Recurrence,
 			})
 		}
 	}

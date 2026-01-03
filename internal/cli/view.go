@@ -10,14 +10,16 @@ import (
 	"google.golang.org/api/calendar/v3"
 
 	"justdoit/internal/agenda"
+	"justdoit/internal/metadata"
 	"justdoit/internal/timeparse"
 )
 
 type taskView struct {
-	ID    string
-	Title string
-	List  string
-	Due   time.Time
+	ID         string
+	Title      string
+	List       string
+	Due        time.Time
+	Recurrence string
 }
 
 func newViewCmd() *cobra.Command {
@@ -161,7 +163,11 @@ func collectTasks(app *App, day time.Time) ([]taskView, error) {
 			}
 			due = due.In(app.Location)
 			if sameDay(due, day) {
-				result = append(result, taskView{ID: t.Id, Title: t.Title, List: name, Due: due})
+				task := taskView{ID: t.Id, Title: t.Title, List: name, Due: due}
+				if rule, ok := metadata.Extract(t.Notes, "justdoit_rrule"); ok {
+					task.Recurrence = rule
+				}
+				result = append(result, task)
 			}
 		}
 	}

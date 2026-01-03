@@ -40,8 +40,9 @@ func (w *Wrapper) Create(input CreateInput) (*tasks.Task, *calendar.Event, error
 	if input.ListID == "" {
 		return nil, nil, fmt.Errorf("listID is required")
 	}
+	title := ensureRecurringTitle(input.Title, len(input.Recurrence) > 0)
 	task := &tasks.Task{
-		Title: input.Title,
+		Title: title,
 		Notes: input.Notes,
 	}
 	if input.Due != nil {
@@ -68,7 +69,7 @@ func (w *Wrapper) Create(input CreateInput) (*tasks.Task, *calendar.Event, error
 	}
 
 	event := &calendar.Event{
-		Summary:     input.Title,
+		Summary:     title,
 		Description: metadata.Append("", EventTaskIDKey, createdTask.Id),
 		Start: &calendar.EventDateTime{
 			DateTime: input.TimeStart.Format(time.RFC3339),
@@ -91,6 +92,17 @@ func (w *Wrapper) Create(input CreateInput) (*tasks.Task, *calendar.Event, error
 	}
 
 	return createdTask, createdEvent, nil
+}
+
+func ensureRecurringTitle(title string, hasRecurrence bool) string {
+	if !hasRecurrence {
+		return title
+	}
+	trimmed := strings.TrimSpace(title)
+	if strings.HasPrefix(trimmed, "🔁") {
+		return title
+	}
+	return "🔁 " + title
 }
 
 func ExtractMetadata(text, key string) (string, bool) {
