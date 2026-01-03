@@ -177,7 +177,7 @@ func startTUI(app *App) error {
 	menu.SetFilteringEnabled(false)
 	menu.SetShowHelp(true)
 	menu.KeyMap.Quit.SetEnabled(false)
-	menu = styleList(menu)
+	menu = styleMenuList(menu)
 
 	model := tuiModel{
 		app:            app,
@@ -998,6 +998,26 @@ func styleList(model list.Model) list.Model {
 	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(colorAccentText).Background(colorAccent).Bold(true)
 	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(colorAccentText).Background(colorAccent)
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(colorMuted)
+	model.SetDelegate(delegate)
+
+	return model
+}
+
+func styleMenuList(model list.Model) list.Model {
+	styles := model.Styles
+	styles.Title = styles.Title.Foreground(colorAccent).Bold(true)
+	styles.FilterPrompt = styles.FilterPrompt.Foreground(colorMuted)
+	styles.FilterCursor = styles.FilterCursor.Foreground(colorAccent)
+	styles.StatusBar = styles.StatusBar.Foreground(colorMuted)
+	styles.PaginationStyle = styles.PaginationStyle.Foreground(colorMuted)
+	styles.HelpStyle = styles.HelpStyle.Foreground(colorMuted)
+	model.Styles = styles
+
+	delegate := list.NewDefaultDelegate()
+	delegate.ShowDescription = false
+	delegate.SetSpacing(0)
+	delegate.Styles.NormalTitle = lipgloss.NewStyle().Foreground(colorMuted)
+	delegate.Styles.SelectedTitle = lipgloss.NewStyle().Foreground(colorAccentText).Background(colorAccent).Bold(true).Padding(0, 1)
 	model.SetDelegate(delegate)
 
 	return model
