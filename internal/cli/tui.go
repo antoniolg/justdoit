@@ -34,6 +34,7 @@ const (
 	stateTaskForm
 	stateConfirmDelete
 	stateCalendarSelect
+	stateQuickCapture
 )
 
 const (
@@ -134,6 +135,10 @@ type tuiModel struct {
 	formMode   formMode
 	editTask   taskItem
 
+	quickInput         textinput.Model
+	quickReturnState   tuiState
+	quickReturnListCtx listContext
+
 	winW int
 	winH int
 }
@@ -194,6 +199,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "ctrl+n":
+			if m.state != stateQuickCapture && m.state != stateTaskForm && !m.isFiltering() {
+				m.openQuickCapture()
+				return m, nil
+			}
 		case "q":
 			if m.state == stateMenu {
 				return m, tea.Quit
@@ -236,6 +246,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.state = stateMenu
 				}
 				return m, nil
+			case stateQuickCapture:
+				m.restoreFromQuickCapture()
+				return m, nil
 			default:
 				m.state = stateMenu
 				return m, nil
@@ -243,7 +256,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	switch msg.(type) {
+	switch msg := msg.(type) {
+	case quickCaptureMsg:
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.status = "✅ Task created"
+		m.restoreFromQuickCapture()
+		return m.refreshAfterQuickCapture()
 	case okMsg, errMsg, weekDataMsg, calendarListMsg, taskToggleMsg:
 		return m.handleMessage(msg)
 	}
@@ -338,6 +359,21 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case stateQuickCapture:
+		var cmd tea.Cmd
+		m.quickInput, cmd = m.quickInput.Update(msg)
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "enter":
+				line := strings.TrimSpace(m.quickInput.Value())
+				if line == "" {
+					m.status = "title is required"
+					return m, nil
+				}
+				return m, m.quickCaptureCmd(line)
+			}
+		}
+		return m, cmd
 	case stateTodayTasks:
 		var cmd tea.Cmd
 		m.tasksList, cmd = m.tasksList.Update(msg)
@@ -513,13 +549,13 @@ func (m tuiModel) View() string {
 	case stateMenu:
 		return padding.Render(renderHeader("Home") + "\n\n" + m.menu.View() + status)
 	case stateWeekView:
-		hint := "tab: switch • ←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • d: delete • n: new task • c: calendars • r: refresh • esc: back"
+		hint := "tab: switch • ←/→ day • [ ]: week • t: today • ↑/↓ item • space: done • e: edit • d: delete • n: new task • c: calendars • r: refresh • ctrl+n: capture • esc: back"
 		if m.weekRefreshing {
 			hint += " • refreshing…"
 		}
 		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(hint) + status)
 	case stateTodayTasks:
-		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • b: backlog • esc: back") + status)
+		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back") + status)
 	case stateAgendaDetails:
 		return padding.Render(renderHeader("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
@@ -537,6 +573,12 @@ func (m tuiModel) View() string {
 			return padding.Render(renderHeader("Calendars") + "\n\n" + "Loading calendars..." + status)
 		}
 		return padding.Render(renderHeader("View calendars") + "\n\n" + m.calendarSelect.View() + "\n\n" + gray("space: toggle • enter: save • esc: back") + status)
+	case stateQuickCapture:
+		input := m.quickInput.View()
+		if strings.TrimSpace(input) == "" {
+			input = m.quickInput.Placeholder
+		}
+		return padding.Render(renderHeader("Quick capture") + "\n\n" + input + "\n\n" + gray("enter: save • esc: cancel"))
 	default:
 		return ""
 	}
@@ -580,6 +622,57 @@ func (m *tuiModel) detailsView() string {
 		fmt.Sprintf("Due: %s", dueText),
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m tuiModel) isFiltering() bool {
+	switch m.state {
+	case stateMenu:
+		return m.menu.FilterState() == list.Filtering
+	case stateListSelect:
+		return m.listSelect.FilterState() == list.Filtering
+	case stateListTasks, stateTodayTasks:
+		return m.tasksList.FilterState() == list.Filtering
+	default:
+		return false
+	}
+}
+
+func (m *tuiModel) openQuickCapture() {
+	m.quickReturnState = m.state
+	m.quickReturnListCtx = m.listCtx
+	m.state = stateQuickCapture
+	m.status = ""
+	if m.quickInput.Placeholder == "" {
+		m.quickInput = textinput.New()
+		m.quickInput.Placeholder = "Task #List ::Section @date @time every:weekly"
+		m.quickInput.CharLimit = 200
+	}
+	m.quickInput.SetValue("")
+	m.quickInput.Focus()
+}
+
+func (m *tuiModel) restoreFromQuickCapture() {
+	m.state = m.quickReturnState
+	m.listCtx = m.quickReturnListCtx
+	m.quickInput.Blur()
+}
+
+func (m *tuiModel) refreshAfterQuickCapture() (tuiModel, tea.Cmd) {
+	switch m.state {
+	case stateTodayTasks:
+		m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
+		return *m, nil
+	case stateListTasks:
+		items, _ := buildListItems(m.app, m.listName, m.showAll)
+		m.tasksList = newTasksListModel(items, m.listName)
+		return *m, nil
+	case stateWeekView:
+		m.weekLoading = true
+		m.setSizes()
+		return *m, m.loadWeekDataCmd(m.weekAnchor())
+	default:
+		return *m, nil
+	}
 }
 
 func newListSelect(app *App) list.Model {
