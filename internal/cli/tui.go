@@ -157,6 +157,7 @@ type tuiModel struct {
 	searchReturnState      tuiState
 	searchReturnListCtx    listContext
 	searchLoading          bool
+	lastListMove           int
 
 	winW int
 	winH int
@@ -472,6 +473,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.searchFocus == focusSearchInput {
 			m.searchInput, cmd = m.searchInput.Update(msg)
 		} else {
+			if key, ok := msg.(tea.KeyMsg); ok {
+				m.lastListMove = listMoveDelta(key.String())
+			}
 			m.tasksList, cmd = m.tasksList.Update(msg)
 			m.ensureNonHeaderSelection()
 		}
@@ -546,6 +550,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case stateTodayTasks:
 		var cmd tea.Cmd
+		if key, ok := msg.(tea.KeyMsg); ok {
+			m.lastListMove = listMoveDelta(key.String())
+		}
 		m.tasksList, cmd = m.tasksList.Update(msg)
 		m.ensureNonHeaderSelection()
 		if key, ok := msg.(tea.KeyMsg); ok {
@@ -598,6 +605,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case stateListTasks:
 		var cmd tea.Cmd
+		if key, ok := msg.(tea.KeyMsg); ok {
+			m.lastListMove = listMoveDelta(key.String())
+		}
 		m.tasksList, cmd = m.tasksList.Update(msg)
 		m.ensureNonHeaderSelection()
 		if key, ok := msg.(tea.KeyMsg); ok {
@@ -1481,6 +1491,8 @@ func (m *tuiModel) ensureNonHeaderSelection() {
 	if len(items) == 0 {
 		return
 	}
+	delta := m.lastListMove
+	m.lastListMove = 0
 	idx := m.tasksList.Index()
 	if idx < 0 || idx >= len(items) {
 		idx = 0
@@ -1488,17 +1500,52 @@ func (m *tuiModel) ensureNonHeaderSelection() {
 	if isSelectableItem(items[idx]) {
 		return
 	}
-	for i := idx + 1; i < len(items); i++ {
-		if isSelectableItem(items[i]) {
-			m.tasksList.Select(i)
-			return
+	searchForward := func() bool {
+		for i := idx + 1; i < len(items); i++ {
+			if isSelectableItem(items[i]) {
+				m.tasksList.Select(i)
+				return true
+			}
 		}
+		return false
 	}
-	for i := idx - 1; i >= 0; i-- {
-		if isSelectableItem(items[i]) {
-			m.tasksList.Select(i)
+	searchBackward := func() bool {
+		for i := idx - 1; i >= 0; i-- {
+			if isSelectableItem(items[i]) {
+				m.tasksList.Select(i)
+				return true
+			}
+		}
+		return false
+	}
+	if delta < 0 {
+		if searchBackward() {
 			return
 		}
+		searchForward()
+		return
+	}
+	if delta > 0 {
+		if searchForward() {
+			return
+		}
+		searchBackward()
+		return
+	}
+	if searchForward() {
+		return
+	}
+	searchBackward()
+}
+
+func listMoveDelta(key string) int {
+	switch key {
+	case "up", "k", "ctrl+p", "pgup":
+		return -1
+	case "down", "j", "ctrl+n", "pgdown":
+		return 1
+	default:
+		return 0
 	}
 }
 
