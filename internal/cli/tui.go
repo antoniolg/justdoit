@@ -110,10 +110,11 @@ type tuiModel struct {
 	viewport       viewport.Model
 	calendarSelect list.Model
 
-	listName string
-	listCtx  listContext
-	showAll  bool
-	status   string
+	listName    string
+	listCtx     listContext
+	showAll     bool
+	showBacklog bool
+	status      string
 
 	weekData         weekData
 	weekFocus        weekFocus
@@ -258,7 +259,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateTodayTasks
 				m.listCtx = listCtxToday
 				m.showAll = false
-				m.tasksList = newTasksListModel(buildNextItems(m.app), "Next")
+				m.showBacklog = true
+				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
 				m.setSizes()
 			case "Week":
 				m.state = stateWeekView
@@ -341,6 +343,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tasksList, cmd = m.tasksList.Update(msg)
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
+			case "b":
+				m.showBacklog = !m.showBacklog
+				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
 			case " ":
 				return m, m.completeSelectedTaskCmd()
 			case "e", "enter":
@@ -514,7 +519,7 @@ func (m tuiModel) View() string {
 		}
 		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(hint) + status)
 	case stateTodayTasks:
-		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • esc: back") + status)
+		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray("space: done • e: edit • d: delete • n: new task • b: backlog • esc: back") + status)
 	case stateAgendaDetails:
 		return padding.Render(renderHeader("Agenda") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
 	case stateListSelect:
@@ -787,7 +792,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			switch m.listCtx {
 			case listCtxToday:
 				m.state = stateTodayTasks
-				m.tasksList = newTasksListModel(buildNextItems(m.app), "Next")
+				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
 			case listCtxWeek:
 				m.state = stateWeekView
 				m.weekLoading = true
@@ -806,7 +811,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			switch m.listCtx {
 			case listCtxToday:
 				m.state = stateTodayTasks
-				m.tasksList = newTasksListModel(buildNextItems(m.app), "Next")
+				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
 			case listCtxWeek:
 				m.state = stateWeekView
 				m.weekLoading = true
@@ -821,7 +826,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			items, _ := buildListItems(m.app, m.listName, m.showAll)
 			m.tasksList = newTasksListModel(items, m.listName)
 		case stateTodayTasks:
-			m.tasksList = newTasksListModel(buildNextItems(m.app), "Next")
+			m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
 		case stateCalendarSelect:
 			m.state = stateWeekView
 			m.weekLoading = true
@@ -902,7 +907,7 @@ func buildListItems(app *App, listName string, all bool) ([]list.Item, error) {
 	return result, nil
 }
 
-func buildNextItems(app *App) []list.Item {
+func buildNextItems(app *App, showBacklog bool) []list.Item {
 	now := time.Now().In(app.Location)
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, app.Location)
 	todayEnd := todayStart.AddDate(0, 0, 1)
@@ -920,6 +925,7 @@ func buildNextItems(app *App) []list.Item {
 		{name: "This week"},
 		{name: "Next week"},
 	}
+	var backlog []taskItem
 
 	for listName, listID := range app.Config.Lists {
 		items, err := app.Tasks.ListTasks(listID, false)
@@ -942,7 +948,23 @@ func buildNextItems(app *App) []list.Item {
 			if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
 				continue
 			}
+			section := "General"
+			if parent, ok := sections[item.Parent]; ok {
+				section = parent
+			}
 			if item.Due == "" {
+				if showBacklog {
+					rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
+					backlog = append(backlog, taskItem{
+						ID:         item.Id,
+						TitleVal:   item.Title,
+						ListName:   listName,
+						ListID:     listID,
+						Section:    section,
+						HasDue:     false,
+						Recurrence: rule,
+					})
+				}
 				continue
 			}
 			due, err := time.Parse(time.RFC3339, item.Due)
@@ -950,10 +972,6 @@ func buildNextItems(app *App) []list.Item {
 				continue
 			}
 			due = due.In(app.Location)
-			section := "General"
-			if parent, ok := sections[item.Parent]; ok {
-				section = parent
-			}
 			rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
 			row := taskItem{
 				ID:         item.Id,
@@ -1000,6 +1018,18 @@ func buildNextItems(app *App) []list.Item {
 	}
 	if len(items) == 0 {
 		items = append(items, taskItem{TitleVal: "(no pending tasks)", IsHeader: true})
+	}
+	if showBacklog && len(backlog) > 0 {
+		sort.SliceStable(backlog, func(i, j int) bool {
+			if backlog[i].ListName == backlog[j].ListName {
+				return backlog[i].TitleVal < backlog[j].TitleVal
+			}
+			return backlog[i].ListName < backlog[j].ListName
+		})
+		items = append(items, taskItem{TitleVal: "Backlog (no date)", IsHeader: true})
+		for _, t := range backlog {
+			items = append(items, t)
+		}
 	}
 	return items
 }
