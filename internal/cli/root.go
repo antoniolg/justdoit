@@ -46,6 +46,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(newConfigCmd())
 	cmd.AddCommand(newDeleteCmd())
 	cmd.AddCommand(newDoneCmd())
+	cmd.AddCommand(newMoveCmd())
 	cmd.AddCommand(newUpdateCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newSectionCmd())
