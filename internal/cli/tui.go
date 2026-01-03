@@ -36,6 +36,7 @@ const (
 	stateCalendarSelect
 	stateQuickCapture
 	stateSnooze
+	stateSearch
 )
 
 const (
@@ -44,9 +45,10 @@ const (
 )
 
 const (
-	listCtxToday listContext = "today"
-	listCtxList  listContext = "list"
-	listCtxWeek  listContext = "week"
+	listCtxToday  listContext = "today"
+	listCtxList   listContext = "list"
+	listCtxWeek   listContext = "week"
+	listCtxSearch listContext = "search"
 )
 
 var (
@@ -144,6 +146,12 @@ type tuiModel struct {
 	snoozeTask          taskItem
 	snoozeReturnState   tuiState
 	snoozeReturnListCtx listContext
+	searchInput         textinput.Model
+	searchFocus         searchFocus
+	searchQuery         string
+	searchReturnState   tuiState
+	searchReturnListCtx listContext
+	searchLoading       bool
 
 	winW int
 	winH int
@@ -152,6 +160,7 @@ type tuiModel struct {
 func startTUI(app *App) error {
 	menu := list.New([]list.Item{
 		menuItem("Next"),
+		menuItem("Search"),
 		menuItem("Week"),
 		menuItem("Lists"),
 		menuItem("New Task"),
@@ -210,6 +219,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.openQuickCapture()
 				return m, nil
 			}
+		case "ctrl+f":
+			if m.state != stateSearch && m.state != stateQuickCapture && m.state != stateSnooze && m.state != stateTaskForm && !m.isFiltering() {
+				m.openSearch()
+				return m, nil
+			}
 		case "q":
 			if m.state == stateMenu {
 				return m, tea.Quit
@@ -248,6 +262,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				case listCtxWeek:
 					m.state = stateWeekView
+				case listCtxSearch:
+					m.state = stateSearch
 				default:
 					m.state = stateMenu
 				}
@@ -258,6 +274,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case stateSnooze:
 				m.restoreFromSnooze()
 				return m, nil
+			case stateSearch:
+				m.restoreFromSearch()
+				return m.refreshAfterSearch()
 			default:
 				m.state = stateMenu
 				return m, nil
@@ -282,6 +301,15 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = "✅ Task rescheduled"
 		m.restoreFromSnooze()
 		return m.refreshAfterSnooze()
+	case searchMsg:
+		m.searchLoading = false
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.tasksList = newTasksListModel(buildSearchItems(msg.results), "Results")
+		m.setSizes()
+		return m, nil
 	case okMsg, errMsg, weekDataMsg, calendarListMsg, taskToggleMsg:
 		return m.handleMessage(msg)
 	}
@@ -300,6 +328,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showBacklog = true
 				m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
 				m.setSizes()
+			case "Search":
+				m.openSearch()
 			case "Week":
 				m.state = stateWeekView
 				m.listCtx = listCtxWeek
@@ -411,6 +441,64 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				return m, m.snoozeCmd(m.snoozeTask, value)
+			}
+		}
+		return m, cmd
+	case stateSearch:
+		var cmd tea.Cmd
+		if m.searchFocus == focusSearchInput {
+			m.searchInput, cmd = m.searchInput.Update(msg)
+		} else {
+			m.tasksList, cmd = m.tasksList.Update(msg)
+		}
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "tab":
+				if m.searchFocus == focusSearchInput {
+					m.searchFocus = focusSearchList
+					m.searchInput.Blur()
+				} else {
+					m.searchFocus = focusSearchInput
+					m.searchInput.Focus()
+				}
+				return m, nil
+			case "enter":
+				if m.searchFocus == focusSearchInput {
+					query := strings.TrimSpace(m.searchInput.Value())
+					if query == "" {
+						m.status = "search query is required"
+						return m, nil
+					}
+					m.searchQuery = query
+					m.searchLoading = true
+					m.searchFocus = focusSearchList
+					m.searchInput.Blur()
+					return m, m.searchCmd(query)
+				}
+				return m, m.editSelectedTaskCmd()
+			case " ":
+				if m.searchFocus == focusSearchList {
+					return m, m.completeSelectedTaskCmd()
+				}
+			case "e":
+				if m.searchFocus == focusSearchList {
+					return m, m.editSelectedTaskCmd()
+				}
+			case "s":
+				if m.searchFocus == focusSearchList {
+					task, ok := m.selectedTask()
+					if !ok {
+						m.status = "Select a task to snooze"
+						return m, nil
+					}
+					m.openSnooze(task)
+					return m, nil
+				}
+			case "d":
+				if m.searchFocus == focusSearchList {
+					m.prepareDelete()
+					return m, nil
+				}
 			}
 		}
 		return m, cmd
@@ -648,6 +736,20 @@ func (m tuiModel) View() string {
 			"Examples: tomorrow • next monday • 15:00-16:00 • 1h",
 		}
 		return padding.Render(renderHeader("Snooze") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray("enter: save • esc: cancel"))
+	case stateSearch:
+		input := m.searchInput.View()
+		if strings.TrimSpace(input) == "" {
+			input = m.searchInput.Placeholder
+		}
+		body := m.splitPane(m.tasksList.View(), m.detailsView())
+		if m.searchLoading {
+			body = "Searching..."
+		}
+		hint := "enter: search • tab: results • esc: back • ctrl+n: capture"
+		if m.searchFocus == focusSearchList {
+			hint = "tab: search • space: done • e/enter: edit • s: snooze • d: delete • esc: back • ctrl+n: capture"
+		}
+		return padding.Render(renderHeader("Search") + "\n\n" + input + "\n\n" + body + "\n\n" + gray(hint) + status)
 	default:
 		return ""
 	}
@@ -699,7 +801,7 @@ func (m tuiModel) isFiltering() bool {
 		return m.menu.FilterState() == list.Filtering
 	case stateListSelect:
 		return m.listSelect.FilterState() == list.Filtering
-	case stateListTasks, stateTodayTasks:
+	case stateListTasks, stateTodayTasks, stateSearch:
 		return m.tasksList.FilterState() == list.Filtering
 	default:
 		return false
@@ -739,6 +841,13 @@ func (m *tuiModel) refreshAfterQuickCapture() (tuiModel, tea.Cmd) {
 		m.weekLoading = true
 		m.setSizes()
 		return *m, m.loadWeekDataCmd(m.weekAnchor())
+	case stateSearch:
+		if strings.TrimSpace(m.searchQuery) == "" {
+			m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
+			return *m, nil
+		}
+		m.searchLoading = true
+		return *m, m.searchCmd(m.searchQuery)
 	default:
 		return *m, nil
 	}
@@ -959,6 +1068,14 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 				m.weekLoading = true
 				m.setSizes()
 				return m, m.loadWeekDataCmd(m.weekAnchor())
+			case listCtxSearch:
+				m.state = stateSearch
+				if strings.TrimSpace(m.searchQuery) == "" {
+					m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
+				} else {
+					m.searchLoading = true
+					return m, m.searchCmd(m.searchQuery)
+				}
 			default:
 				if m.listName != "" {
 					items, _ := buildListItems(m.app, m.listName, m.showAll)
@@ -978,6 +1095,14 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 				m.weekLoading = true
 				m.setSizes()
 				return m, m.loadWeekDataCmd(m.weekAnchor())
+			case listCtxSearch:
+				m.state = stateSearch
+				if strings.TrimSpace(m.searchQuery) == "" {
+					m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
+				} else {
+					m.searchLoading = true
+					return m, m.searchCmd(m.searchQuery)
+				}
 			default:
 				items, _ := buildListItems(m.app, m.listName, m.showAll)
 				m.state = stateListTasks
@@ -988,6 +1113,13 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 			m.tasksList = newTasksListModel(items, m.listName)
 		case stateTodayTasks:
 			m.tasksList = newTasksListModel(buildNextItems(m.app, m.showBacklog), "Next")
+		case stateSearch:
+			if strings.TrimSpace(m.searchQuery) == "" {
+				m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
+			} else {
+				m.searchLoading = true
+				return m, m.searchCmd(m.searchQuery)
+			}
 		case stateCalendarSelect:
 			m.state = stateWeekView
 			m.weekLoading = true
@@ -1219,11 +1351,16 @@ func (m *tuiModel) selectedTask() (taskItem, bool) {
 	if item == nil {
 		return taskItem{}, false
 	}
-	task, ok := item.(taskItem)
-	if !ok || task.IsHeader {
-		return taskItem{}, false
+	switch task := item.(type) {
+	case taskItem:
+		if task.IsHeader {
+			return taskItem{}, false
+		}
+		return task, true
+	case searchItem:
+		return task.Task, true
 	}
-	return task, true
+	return taskItem{}, false
 }
 
 func (m *tuiModel) completeSelectedTaskCmd() tea.Cmd {

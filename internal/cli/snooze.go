@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -71,6 +72,13 @@ func (m *tuiModel) refreshAfterSnooze() (tuiModel, tea.Cmd) {
 		m.weekLoading = true
 		m.setSizes()
 		return *m, m.loadWeekDataCmd(m.weekAnchor())
+	case stateSearch:
+		if strings.TrimSpace(m.searchQuery) == "" {
+			m.tasksList = newTasksListModel([]list.Item{taskItem{TitleVal: "Type to search", IsHeader: true}}, "Results")
+			return *m, nil
+		}
+		m.searchLoading = true
+		return *m, m.searchCmd(m.searchQuery)
 	default:
 		return *m, nil
 	}
