@@ -802,7 +802,7 @@ func (m *tuiModel) renderWeekDetails(width int) string {
 					lines = append(lines, fmt.Sprintf("List: %s", task.ListName))
 					lines = append(lines, fmt.Sprintf("Section: %s", task.Section))
 					if text := recurrenceText(task.Recurrence, m.app.Location); text != "" {
-						lines = append(lines, fmt.Sprintf("Repite: %s", text))
+						lines = append(lines, fmt.Sprintf("Repeats: %s", text))
 					}
 				}
 			}
@@ -816,7 +816,7 @@ func (m *tuiModel) renderWeekDetails(width int) string {
 				lines = append(lines, fmt.Sprintf("Due: %s", task.Due.Format("2006-01-02")))
 			}
 			if text := recurrenceText(task.Recurrence, m.app.Location); text != "" {
-				lines = append(lines, fmt.Sprintf("Repite: %s", text))
+				lines = append(lines, fmt.Sprintf("Repeats: %s", text))
 			}
 		}
 	}

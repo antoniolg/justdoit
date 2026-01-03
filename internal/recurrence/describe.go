@@ -29,13 +29,13 @@ func Describe(rule string, loc *time.Location) (string, bool) {
 	switch option.Freq {
 	case rrule.DAILY:
 		if interval == 1 {
-			return "cada dia", true
+			return "every day", true
 		}
-		return fmt.Sprintf("cada %d dias", interval), true
+		return fmt.Sprintf("every %d days", interval), true
 	case rrule.WEEKLY:
-		base := "cada semana"
+		base := "every week"
 		if interval > 1 {
-			base = fmt.Sprintf("cada %d semanas", interval)
+			base = fmt.Sprintf("every %d weeks", interval)
 		}
 		days := describeWeekdays(option.Byweekday)
 		if days != "" {
@@ -43,14 +43,14 @@ func Describe(rule string, loc *time.Location) (string, bool) {
 		}
 		return base, true
 	case rrule.MONTHLY:
-		base := "cada mes"
+		base := "every month"
 		if interval > 1 {
-			base = fmt.Sprintf("cada %d meses", interval)
+			base = fmt.Sprintf("every %d months", interval)
 		}
 		if len(option.Bymonthday) > 0 {
 			days := append([]int{}, option.Bymonthday...)
 			sort.Ints(days)
-			return fmt.Sprintf("%s el dia %s", base, joinInts(days)), true
+			return fmt.Sprintf("%s on day %s", base, joinInts(days)), true
 		}
 		days := describeWeekdays(option.Byweekday)
 		if days != "" {
@@ -58,9 +58,9 @@ func Describe(rule string, loc *time.Location) (string, bool) {
 		}
 		return base, true
 	case rrule.YEARLY:
-		base := "cada ano"
+		base := "every year"
 		if interval > 1 {
-			base = fmt.Sprintf("cada %d anos", interval)
+			base = fmt.Sprintf("every %d years", interval)
 		}
 		return base, true
 	default:
@@ -82,21 +82,21 @@ func describeWeekdays(days []rrule.Weekday) string {
 func weekdayLabel(code string) string {
 	switch strings.ToUpper(code) {
 	case "MO":
-		return "lun"
+		return "Mon"
 	case "TU":
-		return "mar"
+		return "Tue"
 	case "WE":
-		return "mie"
+		return "Wed"
 	case "TH":
-		return "jue"
+		return "Thu"
 	case "FR":
-		return "vie"
+		return "Fri"
 	case "SA":
-		return "sab"
+		return "Sat"
 	case "SU":
-		return "dom"
+		return "Sun"
 	default:
-		return strings.ToLower(code)
+		return strings.ToUpper(code)
 	}
 }
 
