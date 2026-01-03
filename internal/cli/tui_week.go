@@ -510,15 +510,16 @@ func (m *tuiModel) weekView() string {
 	}
 	rightWidth := width - leftWidth - 2
 	bodyHeight := m.winH - 12
-	if bodyHeight < 10 {
-		bodyHeight = 10
+	if bodyHeight < 8 {
+		bodyHeight = 8
 	}
 	leftInner := leftWidth - panelInsetX()
 	rightInner := rightWidth - panelInsetX()
-	innerHeight := bodyHeight - panelInsetY()
-	if innerHeight < 6 {
-		innerHeight = 6
+	maxInnerHeight := bodyHeight - panelInsetY()
+	if maxInnerHeight < 6 {
+		maxInnerHeight = 6
 	}
+	innerHeight := m.weekContentHeight(maxInnerHeight)
 	if leftInner < 20 || rightInner < 20 {
 		return "Terminal too narrow for week view"
 	}
@@ -527,8 +528,54 @@ func (m *tuiModel) weekView() string {
 	left = panelStyle().Width(leftWidth).Height(innerHeight + panelInsetY()).Render(left)
 	right = panelStyle().Width(rightWidth).Height(innerHeight + panelInsetY()).Render(right)
 	joined := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-	details := m.renderWeekDetails(width)
+	details := panelStyle().Width(width).Render(m.renderWeekDetails(width - panelInsetX()))
 	return joined + "\n\n" + details
+}
+
+func (m *tuiModel) weekContentHeight(maxHeight int) int {
+	if maxHeight <= 0 {
+		return 0
+	}
+	allDayRows := 0
+	for _, items := range m.weekData.AllDay {
+		if len(items) > allDayRows {
+			allDayRows = len(items)
+		}
+	}
+	headerRows := 1 + allDayRows
+	timeRows := m.weekTimeRows()
+	desired := headerRows + timeRows
+	if desired < 6 {
+		desired = 6
+	}
+	if desired > maxHeight {
+		desired = maxHeight
+	}
+	return desired
+}
+
+func (m *tuiModel) weekTimeRows() int {
+	startHour, endHour := 9, 18
+	if m.app != nil {
+		base := m.app.Now
+		if clock, err := timeparse.ParseClock(m.app.Config.WorkdayStart, base, m.app.Location); err == nil {
+			startHour = clock.Hour()
+		}
+		if clock, err := timeparse.ParseClock(m.app.Config.WorkdayEnd, base, m.app.Location); err == nil {
+			endHour = clock.Hour()
+		}
+	}
+	if endHour < startHour {
+		endHour = startHour + 1
+	}
+	rows := endHour - startHour + 1
+	if rows < 6 {
+		rows = 6
+	}
+	if rows > 24 {
+		rows = 24
+	}
+	return rows
 }
 
 func (m *tuiModel) renderBacklog(width, height int) string {
