@@ -447,6 +447,24 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 	case stateSearch:
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "ctrl+l":
+				m.cycleSearchList()
+				if strings.TrimSpace(m.searchQuery) != "" {
+					m.searchLoading = true
+					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+				}
+				return m, nil
+			case "ctrl+a":
+				m.searchIncludeCompleted = !m.searchIncludeCompleted
+				if strings.TrimSpace(m.searchQuery) != "" {
+					m.searchLoading = true
+					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+				}
+				return m, nil
+			}
+		}
 		var cmd tea.Cmd
 		if m.searchFocus == focusSearchInput {
 			m.searchInput, cmd = m.searchInput.Update(msg)
@@ -502,19 +520,23 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			case "l":
-				m.cycleSearchList()
-				if strings.TrimSpace(m.searchQuery) != "" {
-					m.searchLoading = true
-					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+				if m.searchFocus == focusSearchList {
+					m.cycleSearchList()
+					if strings.TrimSpace(m.searchQuery) != "" {
+						m.searchLoading = true
+						return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+					}
+					return m, nil
 				}
-				return m, nil
 			case "a":
-				m.searchIncludeCompleted = !m.searchIncludeCompleted
-				if strings.TrimSpace(m.searchQuery) != "" {
-					m.searchLoading = true
-					return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+				if m.searchFocus == focusSearchList {
+					m.searchIncludeCompleted = !m.searchIncludeCompleted
+					if strings.TrimSpace(m.searchQuery) != "" {
+						m.searchLoading = true
+						return m, m.searchCmd(m.searchQuery, m.searchList, m.searchIncludeCompleted)
+					}
+					return m, nil
 				}
-				return m, nil
 			}
 		}
 		return m, cmd
@@ -770,7 +792,7 @@ func (m tuiModel) View() string {
 			completeLabel = "Yes"
 		}
 		filters := fmt.Sprintf("List: %s • Completed: %s", listLabel, completeLabel)
-		hint := "enter: search • tab: results • l: list • a: completed • esc: back • ctrl+n: capture"
+		hint := "enter: search • tab: results • ctrl+l: list • ctrl+a: completed • esc: back • ctrl+n: capture"
 		if m.searchFocus == focusSearchList {
 			hint = "tab: search • space: done • e/enter: edit • s: snooze • d: delete • l: list • a: completed • esc: back • ctrl+n: capture"
 		}
