@@ -102,11 +102,7 @@ func (t taskItem) Description() string {
 	if t.HasDue {
 		dueText = fmt.Sprintf("due %s", t.Due.Format("2006-01-02"))
 	}
-	idText := gray("[" + t.ID + "]")
-	if dueText == "" {
-		return idText
-	}
-	return fmt.Sprintf("%s · %s", dueText, idText)
+	return dueText
 }
 
 func (t taskItem) FilterValue() string { return t.TitleVal }
@@ -984,9 +980,8 @@ func styleList(model list.Model) list.Model {
 	model.Styles = styles
 
 	delegate := list.NewDefaultDelegate()
-	selected := lipgloss.NewStyle().Foreground(colorAccentText).Background(colorAccent).Bold(true)
-	delegate.Styles.SelectedTitle = selected
-	delegate.Styles.SelectedDesc = lipgloss.NewStyle().Foreground(colorAccentText).Background(colorAccent)
+	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(colorAccentText).Background(colorAccent).Bold(true)
+	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(colorAccentText).Background(colorAccent)
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(colorMuted)
 	model.SetDelegate(delegate)
 
