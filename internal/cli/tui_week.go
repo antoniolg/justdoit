@@ -513,8 +513,19 @@ func (m *tuiModel) weekView() string {
 	if bodyHeight < 10 {
 		bodyHeight = 10
 	}
-	left := m.renderBacklog(leftWidth, bodyHeight)
-	right := m.renderWeekGrid(rightWidth, bodyHeight)
+	leftInner := leftWidth - panelInsetX()
+	rightInner := rightWidth - panelInsetX()
+	innerHeight := bodyHeight - panelInsetY()
+	if innerHeight < 6 {
+		innerHeight = 6
+	}
+	if leftInner < 20 || rightInner < 20 {
+		return "Terminal too narrow for week view"
+	}
+	left := m.renderBacklog(leftInner, innerHeight)
+	right := m.renderWeekGrid(rightInner, innerHeight)
+	left = panelStyle().Width(leftWidth).Height(innerHeight + panelInsetY()).Render(left)
+	right = panelStyle().Width(rightWidth).Height(innerHeight + panelInsetY()).Render(right)
 	joined := lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	details := m.renderWeekDetails(width)
 	return joined + "\n\n" + details
@@ -544,7 +555,7 @@ func (m *tuiModel) renderBacklog(width, height int) string {
 		}
 		line = truncateText(line, width-2)
 		if selected {
-			line = lipgloss.NewStyle().Background(colorAccent).Foreground(lipgloss.Color("230")).Render(line)
+			line = lipgloss.NewStyle().Background(colorAccent).Foreground(colorAccentText).Render(line)
 		} else {
 			line = lipgloss.NewStyle().Foreground(colorMuted).Render(line)
 		}
@@ -612,7 +623,7 @@ func (m *tuiModel) renderWeekGrid(width, height int) string {
 				style := lipgloss.NewStyle().Width(dayWidth)
 				if has {
 					if selectedAllDay && dayIdx == m.weekDayIndex && rowIdx == m.weekAllDayIndex {
-						style = style.Background(colorAccent).Foreground(lipgloss.Color("230"))
+						style = style.Background(colorAccent).Foreground(colorAccentText)
 					} else if ev.TaskID != "" {
 						style = style.Foreground(colorAccent)
 					} else {
@@ -773,7 +784,7 @@ func (m *tuiModel) renderWeekSlot(dayIdx, slot, width int) string {
 		}
 		cell := lipgloss.NewStyle().Width(width).Render(text)
 		if ok && selected && selectedSlot && ev.Column == selectedEvent.Column {
-			cell = lipgloss.NewStyle().Background(colorAccent).Foreground(lipgloss.Color("230")).Width(width).Render(text)
+			cell = lipgloss.NewStyle().Background(colorAccent).Foreground(colorAccentText).Width(width).Render(text)
 		} else if ok && ev.TaskID != "" {
 			cell = lipgloss.NewStyle().Foreground(colorAccent).Width(width).Render(text)
 		} else if ok || text != "" {

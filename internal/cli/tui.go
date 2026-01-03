@@ -52,8 +52,15 @@ const (
 )
 
 var (
-	colorAccent = lipgloss.Color("69")
-	colorMuted  = lipgloss.Color("241")
+	colorAccent     = lipgloss.Color("75")
+	colorAccentText = lipgloss.Color("231")
+	colorMuted      = lipgloss.Color("245")
+	colorBorder     = lipgloss.Color("238")
+)
+
+const (
+	panelPadX = 1
+	panelPadY = 0
 )
 
 type menuItem string
@@ -724,7 +731,7 @@ func (m tuiModel) View() string {
 	padding := lipgloss.NewStyle().Padding(1, 2)
 	status := ""
 	if m.status != "" {
-		status = "\n\n" + gray(m.status)
+		status = "\n\n" + renderStatus(m.status)
 	}
 
 	switch m.state {
@@ -803,23 +810,37 @@ func (m tuiModel) View() string {
 }
 
 func renderHeader(title string) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render("justdoit") + " · " + lipgloss.NewStyle().Bold(true).Render(title)
+	brand := lipgloss.NewStyle().Bold(true).Foreground(colorAccent).Render("justdoit")
+	section := lipgloss.NewStyle().Bold(true).Render(title)
+	return brand + " · " + section
 }
 
 func (m *tuiModel) splitPane(left, right string) string {
 	width := m.winW - 4
-	if width < 60 {
+	if width < 70 {
 		return left
 	}
 	leftWidth := width / 2
-	if leftWidth < 32 {
-		leftWidth = 32
-	}
 	rightWidth := width - leftWidth - 2
+	panelHeight := m.winH - 10
+	if panelHeight < 8 {
+		panelHeight = 8
+	}
+	leftInner := leftWidth - panelInsetX()
+	rightInner := rightWidth - panelInsetX()
+	if leftInner < 20 || rightInner < 20 {
+		return left
+	}
+	innerHeight := panelHeight - panelInsetY()
+	if innerHeight < 4 {
+		innerHeight = 4
+	}
 
-	m.tasksList.SetSize(leftWidth, m.winH-8)
-	leftPane := lipgloss.NewStyle().Width(leftWidth).Render(left)
-	rightPane := lipgloss.NewStyle().Width(rightWidth).Render(right)
+	m.tasksList.SetSize(leftInner, innerHeight)
+	leftContent := lipgloss.NewStyle().Width(leftInner).Render(left)
+	rightContent := lipgloss.NewStyle().Width(rightInner).Render(right)
+	leftPane := panelStyle().Width(leftWidth).Height(panelHeight).Render(leftContent)
+	rightPane := panelStyle().Width(rightWidth).Height(panelHeight).Render(rightContent)
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
 }
 
@@ -832,14 +853,35 @@ func (m *tuiModel) detailsView() string {
 	if task.HasDue {
 		dueText = task.Due.Format("2006-01-02")
 	}
+	label := lipgloss.NewStyle().Foreground(colorMuted)
 	lines := []string{
 		lipgloss.NewStyle().Bold(true).Render(task.TitleVal),
 		"",
-		fmt.Sprintf("List: %s", task.ListName),
-		fmt.Sprintf("Section: %s", task.Section),
-		fmt.Sprintf("Due: %s", dueText),
+		fmt.Sprintf("%s %s", label.Render("List:"), task.ListName),
+		fmt.Sprintf("%s %s", label.Render("Section:"), task.Section),
+		fmt.Sprintf("%s %s", label.Render("Due:"), dueText),
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderStatus(msg string) string {
+	if strings.TrimSpace(msg) == "" {
+		return ""
+	}
+	style := lipgloss.NewStyle().Foreground(colorAccent).Border(lipgloss.RoundedBorder()).BorderForeground(colorBorder).Padding(0, 1)
+	return style.Render(msg)
+}
+
+func panelStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(colorBorder).Padding(panelPadY, panelPadX)
+}
+
+func panelInsetX() int {
+	return 2 + panelPadX*2
+}
+
+func panelInsetY() int {
+	return 2 + panelPadY*2
 }
 
 func (m tuiModel) isFiltering() bool {
@@ -942,8 +984,9 @@ func styleList(model list.Model) list.Model {
 	model.Styles = styles
 
 	delegate := list.NewDefaultDelegate()
-	delegate.Styles.SelectedTitle = delegate.Styles.SelectedTitle.Foreground(colorAccent).Bold(true)
-	delegate.Styles.SelectedDesc = delegate.Styles.SelectedDesc.Foreground(colorMuted)
+	selected := lipgloss.NewStyle().Foreground(colorAccentText).Background(colorAccent).Bold(true)
+	delegate.Styles.SelectedTitle = selected
+	delegate.Styles.SelectedDesc = lipgloss.NewStyle().Foreground(colorAccentText).Background(colorAccent)
 	delegate.Styles.NormalDesc = delegate.Styles.NormalDesc.Foreground(colorMuted)
 	model.SetDelegate(delegate)
 
