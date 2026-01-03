@@ -473,6 +473,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput, cmd = m.searchInput.Update(msg)
 		} else {
 			m.tasksList, cmd = m.tasksList.Update(msg)
+			m.ensureNonHeaderSelection()
 		}
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
@@ -546,6 +547,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateTodayTasks:
 		var cmd tea.Cmd
 		m.tasksList, cmd = m.tasksList.Update(msg)
+		m.ensureNonHeaderSelection()
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
 			case "b":
@@ -597,6 +599,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateListTasks:
 		var cmd tea.Cmd
 		m.tasksList, cmd = m.tasksList.Update(msg)
+		m.ensureNonHeaderSelection()
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
 			case "a":
@@ -966,7 +969,9 @@ func newTasksListModel(items []list.Item, title string) list.Model {
 	model.SetFilteringEnabled(true)
 	model.SetShowHelp(false)
 	model.KeyMap.Quit.SetEnabled(false)
-	return styleList(model)
+	model = styleList(model)
+	setInitialListIndex(&model, items)
+	return model
 }
 
 func styleList(model list.Model) list.Model {
@@ -986,6 +991,29 @@ func styleList(model list.Model) list.Model {
 	model.SetDelegate(delegate)
 
 	return model
+}
+
+func setInitialListIndex(model *list.Model, items []list.Item) {
+	if model == nil || len(items) == 0 {
+		return
+	}
+	for i, item := range items {
+		if isSelectableItem(item) {
+			model.Select(i)
+			return
+		}
+	}
+	model.Select(0)
+}
+
+func isSelectableItem(item list.Item) bool {
+	if item == nil {
+		return false
+	}
+	if task, ok := item.(taskItem); ok {
+		return !task.IsHeader
+	}
+	return true
 }
 
 func newTaskInputs() []textinput.Model {
@@ -1446,6 +1474,32 @@ func (m *tuiModel) selectedTask() (taskItem, bool) {
 		return task.Task, true
 	}
 	return taskItem{}, false
+}
+
+func (m *tuiModel) ensureNonHeaderSelection() {
+	items := m.tasksList.Items()
+	if len(items) == 0 {
+		return
+	}
+	idx := m.tasksList.Index()
+	if idx < 0 || idx >= len(items) {
+		idx = 0
+	}
+	if isSelectableItem(items[idx]) {
+		return
+	}
+	for i := idx + 1; i < len(items); i++ {
+		if isSelectableItem(items[i]) {
+			m.tasksList.Select(i)
+			return
+		}
+	}
+	for i := idx - 1; i >= 0; i-- {
+		if isSelectableItem(items[i]) {
+			m.tasksList.Select(i)
+			return
+		}
+	}
 }
 
 func (m *tuiModel) completeSelectedTaskCmd() tea.Cmd {
