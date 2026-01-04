@@ -1,8 +1,6 @@
 # justdoit (CLI)
 
-![Build](https://github.com/antoniolg/justdoit/actions/workflows/ci.yml/badge.svg?branch=main&job=build)
-![Test](https://github.com/antoniolg/justdoit/actions/workflows/ci.yml/badge.svg?branch=main&job=test)
-![Lint](https://github.com/antoniolg/justdoit/actions/workflows/ci.yml/badge.svg?branch=main&job=lint)
+![CI](https://github.com/antoniolg/justdoit/actions/workflows/ci.yml/badge.svg?branch=main)
 
 ![Week view](assets/week.png)
 
