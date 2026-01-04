@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"google.golang.org/api/calendar/v3"
 	"justdoit/internal/metadata"
@@ -873,18 +874,12 @@ func truncateText(text string, max int) string {
 	if max <= 0 {
 		return ""
 	}
-	if len(text) <= max {
-		return text
-	}
-	if max <= 3 {
-		return text[:max]
-	}
-	return text[:max-3] + "..."
+	return runewidth.Truncate(text, max, "...")
 }
 
 func padText(text string, width int) string {
-	if len(text) >= width {
-		return text[:width]
+	if runewidth.StringWidth(text) >= width {
+		return runewidth.Truncate(text, width, "")
 	}
-	return text + strings.Repeat(" ", width-len(text))
+	return text + strings.Repeat(" ", width-runewidth.StringWidth(text))
 }
