@@ -4,6 +4,8 @@
 ![Test](https://github.com/antoniolg/justdoit/actions/workflows/ci.yml/badge.svg?branch=main&job=test)
 ![Lint](https://github.com/antoniolg/justdoit/actions/workflows/ci.yml/badge.svg?branch=main&job=lint)
 
+![Week view](assets/week.png)
+
 Time‑blocking CLI for Google Tasks + Google Calendar. The CLI creates `config.json` automatically and provides an interactive setup.
 
 ## Requirements
