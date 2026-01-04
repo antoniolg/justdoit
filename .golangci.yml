@@ -19,3 +19,4 @@ linters:
       locale: US
       ignore-rules:
         - anual
+        - cancelled
