@@ -22,7 +22,7 @@ go build -o justdoit ./cmd/justdoit
 ```
 
 ## Requirements
-- Go 1.22+
+- Go 1.24+
 - A Google Cloud project with **Google Tasks API** and **Google Calendar API** enabled
 - OAuth client credentials (Desktop App)
 
