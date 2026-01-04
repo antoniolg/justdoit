@@ -8,6 +8,21 @@
 
 Time‑blocking CLI for Google Tasks + Google Calendar. The CLI creates `config.json` automatically and provides an interactive setup.
 
+## Installation
+
+### Homebrew (recommended)
+```bash
+brew install antoniolg/tap/justdoit
+```
+
+### Prebuilt binaries
+Download the appropriate archive from the GitHub Releases page and put `justdoit` on your PATH.
+
+### Build from source
+```bash
+go build -o justdoit ./cmd/justdoit
+```
+
 ## Requirements
 - Go 1.22+
 - A Google Cloud project with **Google Tasks API** and **Google Calendar API** enabled
