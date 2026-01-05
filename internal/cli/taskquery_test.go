@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/tasks/v1"
 )
 
@@ -19,6 +20,19 @@ func (f fakeTaskProvider) ListTasks(listID string, showCompleted bool) ([]*tasks
 
 func (f fakeTaskProvider) ListTasksWithOptions(listID string, showCompleted, showHidden, showDeleted bool, updatedMin string) ([]*tasks.Task, error) {
 	return f.lists[listID], nil
+}
+
+type fakeCalendarProvider struct {
+	calendars []*calendar.CalendarListEntry
+	events    map[string][]*calendar.Event
+}
+
+func (f fakeCalendarProvider) ListEvents(calendarID string, timeMin, timeMax string) ([]*calendar.Event, error) {
+	return f.events[calendarID], nil
+}
+
+func (f fakeCalendarProvider) ListCalendars() ([]*calendar.CalendarListEntry, error) {
+	return f.calendars, nil
 }
 
 func TestBuildNextItemsBuckets(t *testing.T) {
@@ -108,6 +122,69 @@ func TestSearchTasks(t *testing.T) {
 	}
 	if len(results) != 1 || results[0].TitleVal != "Done" {
 		t.Fatalf("expected completed task to be included, got %#v", results)
+	}
+}
+
+func TestBuildNextItemsIncludesTodayEvents(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 1, 3, 10, 0, 0, 0, loc)
+	listID := "list-1"
+	calID := "cal-1"
+
+	items := []*tasks.Task{
+		{Id: "1", Title: "Task Today", Status: "needsAction", Due: time.Date(2026, 1, 3, 12, 0, 0, 0, loc).Format(time.RFC3339)},
+	}
+
+	calendars := []*calendar.CalendarListEntry{
+		{Id: calID, Summary: "Work"},
+	}
+
+	events := map[string][]*calendar.Event{
+		calID: {
+			{Id: "evt-2", Summary: "Standup", Start: &calendar.EventDateTime{DateTime: time.Date(2026, 1, 3, 9, 0, 0, 0, loc).Format(time.RFC3339)}, End: &calendar.EventDateTime{DateTime: time.Date(2026, 1, 3, 9, 30, 0, 0, loc).Format(time.RFC3339)}},
+			{Id: "evt-1", Summary: "All Day", Start: &calendar.EventDateTime{Date: "2026-01-03"}, End: &calendar.EventDateTime{Date: "2026-01-04"}},
+		},
+	}
+
+	ctx := queryContext{
+		Tasks:         fakeTaskProvider{lists: map[string][]*tasks.Task{listID: items}},
+		Calendar:      fakeCalendarProvider{calendars: calendars, events: events},
+		Lists:         map[string]string{"Work": listID},
+		ViewCalendars: []string{calID},
+		Location:      loc,
+		Now:           func() time.Time { return now },
+	}
+
+	got, err := buildNextItems(ctx, false)
+	if err != nil {
+		t.Fatalf("buildNextItems error: %v", err)
+	}
+
+	todayIdx := -1
+	for i, item := range got {
+		task, ok := item.(taskItem)
+		if ok && task.IsHeader && task.TitleVal == "Today" {
+			todayIdx = i
+			break
+		}
+	}
+	if todayIdx == -1 {
+		t.Fatalf("missing Today header")
+	}
+	if len(got) <= todayIdx+3 {
+		t.Fatalf("expected Today bucket to include events and task")
+	}
+
+	firstEvent, ok := got[todayIdx+1].(calendarEventItem)
+	if !ok || !firstEvent.AllDay || firstEvent.Summary != "All Day" {
+		t.Fatalf("expected all-day event first, got %#v", got[todayIdx+1])
+	}
+	secondEvent, ok := got[todayIdx+2].(calendarEventItem)
+	if !ok || secondEvent.Summary != "Standup" {
+		t.Fatalf("expected timed event second, got %#v", got[todayIdx+2])
+	}
+	if task, ok := got[todayIdx+3].(taskItem); !ok || task.TitleVal != "Task Today" {
+		t.Fatalf("expected task after events, got %#v", got[todayIdx+3])
 	}
 }
 

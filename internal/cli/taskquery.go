@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"google.golang.org/api/calendar/v3"
 	"google.golang.org/api/tasks/v1"
 
 	"justdoit/internal/metadata"
@@ -17,11 +18,18 @@ type TaskProvider interface {
 	ListTasksWithOptions(listID string, showCompleted, showHidden, showDeleted bool, updatedMin string) ([]*tasks.Task, error)
 }
 
+type CalendarProvider interface {
+	ListEvents(calendarID string, timeMin, timeMax string) ([]*calendar.Event, error)
+	ListCalendars() ([]*calendar.CalendarListEntry, error)
+}
+
 type queryContext struct {
-	Tasks    TaskProvider
-	Lists    map[string]string
-	Location *time.Location
-	Now      func() time.Time
+	Tasks         TaskProvider
+	Calendar      CalendarProvider
+	Lists         map[string]string
+	ViewCalendars []string
+	Location      *time.Location
+	Now           func() time.Time
 }
 
 func newQueryContext(app *App) queryContext {
@@ -35,10 +43,12 @@ func newQueryContext(app *App) queryContext {
 		return queryContext{Now: now}
 	}
 	return queryContext{
-		Tasks:    app.Tasks,
-		Lists:    app.Config.Lists,
-		Location: app.Location,
-		Now:      now,
+		Tasks:         app.Tasks,
+		Calendar:      app.Calendar,
+		Lists:         app.Config.Lists,
+		ViewCalendars: app.Config.ViewCalendars,
+		Location:      app.Location,
+		Now:           now,
 	}
 }
 
@@ -58,6 +68,46 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 	weekStart := weekStartDate(todayStart)
 	weekEnd := weekStart.AddDate(0, 0, 7)
 	nextWeekEnd := weekEnd.AddDate(0, 0, 7)
+
+	todayEvents := []calendarEventItem{}
+	if ctx.Calendar != nil && len(ctx.ViewCalendars) > 0 {
+		calendarNames := map[string]string{}
+		if items, err := ctx.Calendar.ListCalendars(); err == nil {
+			for _, cal := range items {
+				calendarNames[cal.Id] = cal.Summary
+			}
+		}
+		timeMin := todayStart.Format(time.RFC3339)
+		timeMax := todayEnd.Format(time.RFC3339)
+		for _, calendarID := range ctx.ViewCalendars {
+			events, err := ctx.Calendar.ListEvents(calendarID, timeMin, timeMax)
+			if err != nil {
+				return nil, err
+			}
+			for _, e := range events {
+				if e == nil || strings.EqualFold(e.Status, "cancelled") {
+					continue
+				}
+				start, end, allDay := eventTimesWithAllDay(e, ctx.Location)
+				if start.IsZero() || end.IsZero() {
+					continue
+				}
+				name := calendarNames[calendarID]
+				if strings.TrimSpace(name) == "" {
+					name = calendarID
+				}
+				todayEvents = append(todayEvents, calendarEventItem{
+					ID:           e.Id,
+					Summary:      e.Summary,
+					CalendarID:   calendarID,
+					CalendarName: name,
+					Start:        start,
+					End:          end,
+					AllDay:       allDay,
+				})
+			}
+		}
+	}
 
 	type bucket struct {
 		name  string
@@ -138,9 +188,6 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 
 	items := []list.Item{}
 	for _, b := range buckets {
-		if len(b.tasks) == 0 {
-			continue
-		}
 		sort.SliceStable(b.tasks, func(i, j int) bool {
 			if b.tasks[i].Due.Equal(b.tasks[j].Due) {
 				if b.tasks[i].ListName == b.tasks[j].ListName {
@@ -150,6 +197,34 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 			}
 			return b.tasks[i].Due.Before(b.tasks[j].Due)
 		})
+		if b.name == "Today" {
+			if len(b.tasks) == 0 && len(todayEvents) == 0 {
+				continue
+			}
+			sort.SliceStable(todayEvents, func(i, j int) bool {
+				if todayEvents[i].AllDay != todayEvents[j].AllDay {
+					return todayEvents[i].AllDay
+				}
+				if !todayEvents[i].Start.Equal(todayEvents[j].Start) {
+					return todayEvents[i].Start.Before(todayEvents[j].Start)
+				}
+				if !todayEvents[i].End.Equal(todayEvents[j].End) {
+					return todayEvents[i].End.Before(todayEvents[j].End)
+				}
+				return todayEvents[i].Summary < todayEvents[j].Summary
+			})
+			items = append(items, taskItem{TitleVal: b.name, IsHeader: true})
+			for _, e := range todayEvents {
+				items = append(items, e)
+			}
+			for _, t := range b.tasks {
+				items = append(items, t)
+			}
+			continue
+		}
+		if len(b.tasks) == 0 {
+			continue
+		}
 		items = append(items, taskItem{TitleVal: b.name, IsHeader: true})
 		for _, t := range b.tasks {
 			items = append(items, t)
