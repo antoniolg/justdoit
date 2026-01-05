@@ -58,10 +58,6 @@ func formatTimeRange(start, end time.Time) string {
 	return fmt.Sprintf("%s-%s", startText, end.Format("15:04"))
 }
 
-func hasTime(value time.Time) bool {
-	return value.Hour() != 0 || value.Minute() != 0 || value.Second() != 0 || value.Nanosecond() != 0
-}
-
 func formatDueText(due time.Time, hasTime bool) string {
 	if due.IsZero() {
 		return ""
