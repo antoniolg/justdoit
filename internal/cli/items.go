@@ -62,15 +62,42 @@ func hasTime(value time.Time) bool {
 	return value.Hour() != 0 || value.Minute() != 0 || value.Second() != 0 || value.Nanosecond() != 0
 }
 
-func formatDueText(due time.Time) string {
+func formatDueText(due time.Time, hasTime bool) string {
 	if due.IsZero() {
 		return ""
 	}
 	dateText := due.Format("2006-01-02")
-	if hasTime(due) {
+	if hasTime {
 		return fmt.Sprintf("%s %s", dateText, due.Format("15:04"))
 	}
 	return dateText
+}
+
+func parseTaskDue(raw string, loc *time.Location) (time.Time, bool, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false, false
+	}
+	if loc == nil {
+		loc = time.Local
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return time.Time{}, false, false
+	}
+	local := parsed.In(loc)
+	return local, true, taskHasTime(parsed, local)
+}
+
+func taskHasTime(parsed time.Time, local time.Time) bool {
+	utc := parsed.UTC()
+	if utc.Hour() == 0 && utc.Minute() == 0 && utc.Second() == 0 && utc.Nanosecond() == 0 {
+		return false
+	}
+	if local.Hour() == 23 && local.Minute() == 59 && (local.Second() == 0 || local.Second() == 59) {
+		return false
+	}
+	return true
 }
 
 func formatAllDayRange(start, end time.Time) string {

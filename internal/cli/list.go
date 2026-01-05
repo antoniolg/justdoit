@@ -17,6 +17,7 @@ type taskRow struct {
 	Title      string
 	Due        time.Time
 	HasDue     bool
+	HasTime    bool
 	Index      int
 	Recurrence string
 }
@@ -45,7 +46,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			sectionFilter := strings.TrimSpace(section)
-			sections, order := groupTasksBySection(items, sectionFilter)
+			sections, order := groupTasksBySection(items, sectionFilter, app.Location)
 			if len(sections) == 0 {
 				fmt.Println("(no tasks)")
 				return nil
@@ -67,7 +68,7 @@ func newListCmd() *cobra.Command {
 	return cmd
 }
 
-func groupTasksBySection(items []*tasks.Task, filter string) (map[string][]taskRow, []string) {
+func groupTasksBySection(items []*tasks.Task, filter string, loc *time.Location) (map[string][]taskRow, []string) {
 	sections := map[string][]taskRow{}
 	order := []string{}
 	sectionIDs := map[string]string{}
@@ -101,12 +102,7 @@ func groupTasksBySection(items []*tasks.Task, filter string) (map[string][]taskR
 		if rule, ok := metadata.Extract(item.Notes, "justdoit_rrule"); ok {
 			row.Recurrence = rule
 		}
-		if item.Due != "" {
-			if due, err := time.Parse(time.RFC3339, item.Due); err == nil {
-				row.Due = due
-				row.HasDue = true
-			}
-		}
+		row.Due, row.HasDue, row.HasTime = parseTaskDue(item.Due, loc)
 		sections[sectionName] = append(sections[sectionName], row)
 	}
 	return sections, order

@@ -345,14 +345,7 @@ func (m *tuiModel) resolveTaskByID(taskID string) (taskItem, bool) {
 				}
 			}
 		}
-		var due time.Time
-		hasDue := false
-		if task.Due != "" {
-			if parsed, err := time.Parse(time.RFC3339, task.Due); err == nil {
-				due = parsed.In(m.app.Location)
-				hasDue = true
-			}
-		}
+		due, hasDue, hasTime := parseTaskDue(task.Due, m.app.Location)
 		item := taskItem{
 			ID:       task.Id,
 			TitleVal: task.Title,
@@ -361,6 +354,7 @@ func (m *tuiModel) resolveTaskByID(taskID string) (taskItem, bool) {
 			Section:  section,
 			Due:      due,
 			HasDue:   hasDue,
+			HasTime:  hasTime,
 			Recurrence: func() string {
 				if rule, ok := metadata.Extract(task.Notes, "justdoit_rrule"); ok {
 					return rule

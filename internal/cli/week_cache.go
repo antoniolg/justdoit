@@ -263,14 +263,7 @@ func collectTasksFromCache(app *App, c *cache.Cache, start, end time.Time) ([]ta
 			if parent, ok := sections[entry.Parent]; ok {
 				section = parent
 			}
-			hasDue := false
-			var due time.Time
-			if entry.Due != "" {
-				if parsed, err := time.Parse(time.RFC3339, entry.Due); err == nil {
-					due = parsed.In(app.Location)
-					hasDue = true
-				}
-			}
+			due, hasDue, hasTime := parseTaskDue(entry.Due, app.Location)
 			item := taskItem{
 				ID:       entry.ID,
 				TitleVal: entry.Title,
@@ -279,6 +272,7 @@ func collectTasksFromCache(app *App, c *cache.Cache, start, end time.Time) ([]ta
 				Section:  section,
 				Due:      due,
 				HasDue:   hasDue,
+				HasTime:  hasTime,
 				Recurrence: func() string {
 					if rule, ok := metadata.Extract(entry.Notes, "justdoit_rrule"); ok {
 						return rule

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"testing"
+	"time"
 
 	"google.golang.org/api/tasks/v1"
 )
@@ -13,7 +14,7 @@ func TestGroupTasksBySectionBuildsSectionIndexFirst(t *testing.T) {
 		{Id: sectionID, Title: "Recurrentes", Notes: "justdoit_section=1"},
 	}
 
-	sections, order := groupTasksBySection(items, "")
+	sections, order := groupTasksBySection(items, "", time.UTC)
 	if len(sections) == 0 {
 		t.Fatalf("expected sections, got none")
 	}

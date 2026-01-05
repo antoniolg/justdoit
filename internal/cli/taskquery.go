@@ -156,11 +156,10 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 				}
 				continue
 			}
-			due, err := time.Parse(time.RFC3339, item.Due)
-			if err != nil {
+			due, hasDue, hasTime := parseTaskDue(item.Due, ctx.Location)
+			if !hasDue {
 				continue
 			}
-			due = due.In(ctx.Location)
 			rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
 			row := taskItem{
 				ID:         item.Id,
@@ -170,6 +169,7 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 				Section:    section,
 				Due:        due,
 				HasDue:     true,
+				HasTime:    hasTime,
 				Recurrence: rule,
 			}
 
@@ -221,7 +221,7 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 			for _, t := range b.tasks {
 				entries = append(entries, todayEntry{
 					item:  t,
-					timed: hasTime(t.Due),
+					timed: t.HasTime,
 					start: t.Due,
 					kind:  1,
 					label: t.TitleVal,
@@ -327,14 +327,7 @@ func searchTasks(ctx queryContext, query, listFilter string, includeCompleted bo
 			if !matchesSearch(needle, item, section) {
 				continue
 			}
-			var due time.Time
-			hasDue := false
-			if item.Due != "" {
-				if parsed, err := time.Parse(time.RFC3339, item.Due); err == nil {
-					due = parsed.In(ctx.Location)
-					hasDue = true
-				}
-			}
+			due, hasDue, hasTime := parseTaskDue(item.Due, ctx.Location)
 			recurrence := ""
 			if rule, ok := metadata.Extract(item.Notes, "justdoit_rrule"); ok {
 				recurrence = rule
@@ -347,6 +340,7 @@ func searchTasks(ctx queryContext, query, listFilter string, includeCompleted bo
 				Section:    section,
 				Due:        due,
 				HasDue:     hasDue,
+				HasTime:    hasTime,
 				Recurrence: recurrence,
 			})
 		}

@@ -93,6 +93,7 @@ type taskItem struct {
 	Section    string
 	Due        time.Time
 	HasDue     bool
+	HasTime    bool
 	IsHeader   bool
 	Recurrence string
 }
@@ -110,7 +111,7 @@ func (t taskItem) Description() string {
 	}
 	dueText := ""
 	if t.HasDue {
-		if formatted := formatDueText(t.Due); formatted != "" {
+		if formatted := formatDueText(t.Due, t.HasTime); formatted != "" {
 			dueText = fmt.Sprintf("due %s", formatted)
 		}
 	}
@@ -972,7 +973,7 @@ func (m *tuiModel) detailsView() string {
 		}
 		dueText := "None"
 		if value.HasDue {
-			if formatted := formatDueText(value.Due); formatted != "" {
+			if formatted := formatDueText(value.Due, value.HasTime); formatted != "" {
 				dueText = formatted
 			}
 		}
@@ -991,7 +992,7 @@ func (m *tuiModel) detailsView() string {
 		}
 		dueText := "None"
 		if task.HasDue {
-			if formatted := formatDueText(task.Due); formatted != "" {
+			if formatted := formatDueText(task.Due, task.HasTime); formatted != "" {
 				dueText = formatted
 			}
 		}
@@ -1576,7 +1577,7 @@ func buildListItems(app *App, listName string, all bool) ([]list.Item, error) {
 	if err != nil {
 		return nil, err
 	}
-	sections, order := groupTasksBySection(items, "")
+	sections, order := groupTasksBySection(items, "", app.Location)
 	result := []list.Item{}
 	for _, section := range order {
 		rows := sections[section]
@@ -1593,6 +1594,7 @@ func buildListItems(app *App, listName string, all bool) ([]list.Item, error) {
 				Section:    section,
 				Due:        row.Due,
 				HasDue:     row.HasDue,
+				HasTime:    row.HasTime,
 				Recurrence: row.Recurrence,
 			})
 		}
