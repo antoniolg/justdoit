@@ -132,7 +132,8 @@ func TestBuildNextItemsIncludesTodayEvents(t *testing.T) {
 	calID := "cal-1"
 
 	items := []*tasks.Task{
-		{Id: "1", Title: "Task Today", Status: "needsAction", Due: time.Date(2026, 1, 3, 12, 0, 0, 0, loc).Format(time.RFC3339)},
+		{Id: "1", Title: "All Day Task", Status: "needsAction", Due: time.Date(2026, 1, 3, 0, 0, 0, 0, loc).Format(time.RFC3339)},
+		{Id: "2", Title: "Timed Task", Status: "needsAction", Due: time.Date(2026, 1, 3, 15, 0, 0, 0, loc).Format(time.RFC3339)},
 	}
 
 	calendars := []*calendar.CalendarListEntry{
@@ -171,20 +172,24 @@ func TestBuildNextItemsIncludesTodayEvents(t *testing.T) {
 	if todayIdx == -1 {
 		t.Fatalf("missing Today header")
 	}
-	if len(got) <= todayIdx+3 {
-		t.Fatalf("expected Today bucket to include events and task")
+	if len(got) <= todayIdx+4 {
+		t.Fatalf("expected Today bucket to include events and tasks")
 	}
 
 	firstEvent, ok := got[todayIdx+1].(calendarEventItem)
 	if !ok || !firstEvent.AllDay || firstEvent.Summary != "All Day" {
 		t.Fatalf("expected all-day event first, got %#v", got[todayIdx+1])
 	}
-	secondEvent, ok := got[todayIdx+2].(calendarEventItem)
-	if !ok || secondEvent.Summary != "Standup" {
-		t.Fatalf("expected timed event second, got %#v", got[todayIdx+2])
+	secondTask, ok := got[todayIdx+2].(taskItem)
+	if !ok || secondTask.TitleVal != "All Day Task" {
+		t.Fatalf("expected all-day task second, got %#v", got[todayIdx+2])
 	}
-	if task, ok := got[todayIdx+3].(taskItem); !ok || task.TitleVal != "Task Today" {
-		t.Fatalf("expected task after events, got %#v", got[todayIdx+3])
+	thirdEvent, ok := got[todayIdx+3].(calendarEventItem)
+	if !ok || thirdEvent.Summary != "Standup" {
+		t.Fatalf("expected timed event third, got %#v", got[todayIdx+3])
+	}
+	if task, ok := got[todayIdx+4].(taskItem); !ok || task.TitleVal != "Timed Task" {
+		t.Fatalf("expected timed task fourth, got %#v", got[todayIdx+4])
 	}
 }
 

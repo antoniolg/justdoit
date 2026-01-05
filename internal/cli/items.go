@@ -57,3 +57,33 @@ func formatTimeRange(start, end time.Time) string {
 	}
 	return fmt.Sprintf("%s-%s", startText, end.Format("15:04"))
 }
+
+func hasTime(value time.Time) bool {
+	return value.Hour() != 0 || value.Minute() != 0 || value.Second() != 0 || value.Nanosecond() != 0
+}
+
+func formatDueText(due time.Time) string {
+	if due.IsZero() {
+		return ""
+	}
+	dateText := due.Format("2006-01-02")
+	if hasTime(due) {
+		return fmt.Sprintf("%s %s", dateText, due.Format("15:04"))
+	}
+	return dateText
+}
+
+func formatAllDayRange(start, end time.Time) string {
+	if start.IsZero() {
+		return ""
+	}
+	startText := start.Format("2006-01-02")
+	if end.IsZero() || !end.After(start) {
+		return startText
+	}
+	last := end.AddDate(0, 0, -1)
+	if sameDay(start, last) {
+		return startText
+	}
+	return fmt.Sprintf("%s..%s", startText, last.Format("2006-01-02"))
+}

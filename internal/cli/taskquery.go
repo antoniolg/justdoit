@@ -201,24 +201,49 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 			if len(b.tasks) == 0 && len(todayEvents) == 0 {
 				continue
 			}
-			sort.SliceStable(todayEvents, func(i, j int) bool {
-				if todayEvents[i].AllDay != todayEvents[j].AllDay {
-					return todayEvents[i].AllDay
-				}
-				if !todayEvents[i].Start.Equal(todayEvents[j].Start) {
-					return todayEvents[i].Start.Before(todayEvents[j].Start)
-				}
-				if !todayEvents[i].End.Equal(todayEvents[j].End) {
-					return todayEvents[i].End.Before(todayEvents[j].End)
-				}
-				return todayEvents[i].Summary < todayEvents[j].Summary
-			})
-			items = append(items, taskItem{TitleVal: b.name, IsHeader: true})
+			type todayEntry struct {
+				item  list.Item
+				timed bool
+				start time.Time
+				kind  int
+				label string
+			}
+			entries := make([]todayEntry, 0, len(todayEvents)+len(b.tasks))
 			for _, e := range todayEvents {
-				items = append(items, e)
+				entries = append(entries, todayEntry{
+					item:  e,
+					timed: !e.AllDay,
+					start: e.Start,
+					kind:  0,
+					label: e.Summary,
+				})
 			}
 			for _, t := range b.tasks {
-				items = append(items, t)
+				entries = append(entries, todayEntry{
+					item:  t,
+					timed: hasTime(t.Due),
+					start: t.Due,
+					kind:  1,
+					label: t.TitleVal,
+				})
+			}
+			sort.SliceStable(entries, func(i, j int) bool {
+				if entries[i].timed != entries[j].timed {
+					return !entries[i].timed
+				}
+				if entries[i].timed {
+					if !entries[i].start.Equal(entries[j].start) {
+						return entries[i].start.Before(entries[j].start)
+					}
+				}
+				if entries[i].kind != entries[j].kind {
+					return entries[i].kind < entries[j].kind
+				}
+				return entries[i].label < entries[j].label
+			})
+			items = append(items, taskItem{TitleVal: b.name, IsHeader: true})
+			for _, entry := range entries {
+				items = append(items, entry.item)
 			}
 			continue
 		}

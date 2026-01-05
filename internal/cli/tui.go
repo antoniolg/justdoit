@@ -99,7 +99,9 @@ func (t taskItem) Description() string {
 	}
 	dueText := ""
 	if t.HasDue {
-		dueText = fmt.Sprintf("due %s", t.Due.Format("2006-01-02"))
+		if formatted := formatDueText(t.Due); formatted != "" {
+			dueText = fmt.Sprintf("due %s", formatted)
+		}
 	}
 	return dueText
 }
@@ -866,23 +868,82 @@ func (m *tuiModel) splitPane(left, right string) string {
 }
 
 func (m *tuiModel) detailsView() string {
-	task, ok := m.selectedTask()
-	if !ok {
-		return gray("Select a task to see details")
-	}
-	dueText := "None"
-	if task.HasDue {
-		dueText = task.Due.Format("2006-01-02")
-	}
 	label := lipgloss.NewStyle().Foreground(colorMuted)
-	lines := []string{
-		lipgloss.NewStyle().Bold(true).Render(task.TitleVal),
-		"",
-		fmt.Sprintf("%s %s", label.Render("List:"), task.ListName),
-		fmt.Sprintf("%s %s", label.Render("Section:"), task.Section),
-		fmt.Sprintf("%s %s", label.Render("Due:"), dueText),
+	item := m.tasksList.SelectedItem()
+	if item == nil {
+		return gray("Select a task or event to see details")
 	}
-	return strings.Join(lines, "\n")
+
+	switch value := item.(type) {
+	case taskItem:
+		if value.IsHeader {
+			return gray("Select a task or event to see details")
+		}
+		dueText := "None"
+		if value.HasDue {
+			if formatted := formatDueText(value.Due); formatted != "" {
+				dueText = formatted
+			}
+		}
+		lines := []string{
+			lipgloss.NewStyle().Bold(true).Render(value.TitleVal),
+			"",
+			fmt.Sprintf("%s %s", label.Render("List:"), value.ListName),
+			fmt.Sprintf("%s %s", label.Render("Section:"), value.Section),
+			fmt.Sprintf("%s %s", label.Render("Due:"), dueText),
+		}
+		return strings.Join(lines, "\n")
+	case searchItem:
+		task := value.Task
+		if task.IsHeader {
+			return gray("Select a task or event to see details")
+		}
+		dueText := "None"
+		if task.HasDue {
+			if formatted := formatDueText(task.Due); formatted != "" {
+				dueText = formatted
+			}
+		}
+		lines := []string{
+			lipgloss.NewStyle().Bold(true).Render(task.TitleVal),
+			"",
+			fmt.Sprintf("%s %s", label.Render("List:"), task.ListName),
+			fmt.Sprintf("%s %s", label.Render("Section:"), task.Section),
+			fmt.Sprintf("%s %s", label.Render("Due:"), dueText),
+		}
+		return strings.Join(lines, "\n")
+	case calendarEventItem:
+		when := ""
+		if value.AllDay {
+			if formatted := formatAllDayRange(value.Start, value.End); formatted != "" {
+				when = fmt.Sprintf("%s (all-day)", formatted)
+			}
+		} else {
+			dateText := value.Start.Format("2006-01-02")
+			timeText := formatTimeRange(value.Start, value.End)
+			if timeText != "" {
+				when = fmt.Sprintf("%s %s", dateText, timeText)
+			} else {
+				when = dateText
+			}
+		}
+		if when == "" {
+			when = "Unknown"
+		}
+		calendarName := strings.TrimSpace(value.CalendarName)
+		if calendarName == "" {
+			calendarName = value.CalendarID
+		}
+		lines := []string{
+			lipgloss.NewStyle().Bold(true).Render(value.Summary),
+			"",
+			fmt.Sprintf("%s %s", label.Render("Calendar:"), calendarName),
+			fmt.Sprintf("%s %s", label.Render("When:"), when),
+		}
+		return strings.Join(lines, "\n")
+	default:
+		return gray("Select a task or event to see details")
+	}
 }
 
 func renderStatus(msg string) string {
