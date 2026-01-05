@@ -73,16 +73,19 @@ func groupTasksBySection(items []*tasks.Task, filter string) (map[string][]taskR
 	sectionIDs := map[string]string{}
 	sectionNames := map[string]bool{}
 
-	for i, item := range items {
+	for _, item := range items {
 		if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
 			sectionIDs[item.Id] = item.Title
 			if !sectionNames[item.Title] {
 				order = append(order, item.Title)
 				sectionNames[item.Title] = true
 			}
+		}
+	}
+	for i, item := range items {
+		if _, ok := metadata.Extract(item.Notes, "justdoit_section"); ok {
 			continue
 		}
-
 		sectionName := "General"
 		if parent, ok := sectionIDs[item.Parent]; ok {
 			sectionName = parent
