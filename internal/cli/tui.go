@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"google.golang.org/api/tasks/v1"
 	"justdoit/internal/sync"
 	"justdoit/internal/timeparse"
 )
@@ -19,6 +20,8 @@ import (
 type tuiState int
 
 type formMode string
+
+type formSelectMode int
 
 type listContext string
 
@@ -31,6 +34,7 @@ const (
 	stateListTasks
 	stateNewTaskList
 	stateTaskForm
+	stateFormSelect
 	stateConfirmDelete
 	stateCalendarSelect
 	stateQuickCapture
@@ -41,6 +45,11 @@ const (
 const (
 	formNew  formMode = "new"
 	formEdit formMode = "edit"
+)
+
+const (
+	formSelectList formSelectMode = iota
+	formSelectSection
 )
 
 const (
@@ -61,6 +70,8 @@ const (
 	panelPadX = 1
 	panelPadY = 0
 )
+
+const noSectionLabel = "(no section)"
 
 type menuItem string
 
@@ -117,6 +128,10 @@ type tuiModel struct {
 	tasksList      list.Model
 	viewport       viewport.Model
 	calendarSelect list.Model
+	formSelect     list.Model
+	formSelectMode formSelectMode
+	formSelectStep int
+	formSelectBusy bool
 
 	listName    string
 	listCtx     listContext
@@ -188,6 +203,7 @@ func startTUI(app *App) error {
 		listSelect:     styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
 		tasksList:      styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
 		calendarSelect: list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0),
+		formSelect:     styleList(list.New([]list.Item{}, list.NewDefaultDelegate(), 0, 0)),
 		listCtx:        listCtxList,
 	}
 	p := tea.NewProgram(model, tea.WithAltScreen())
@@ -209,6 +225,7 @@ func (m *tuiModel) setSizes() {
 	m.viewport.Width = m.winW - 4
 	m.viewport.Height = m.winH - 8
 	m.calendarSelect.SetSize(m.winW-4, m.winH-6)
+	m.formSelect.SetSize(m.winW-4, m.winH-6)
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -223,12 +240,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "ctrl+n":
-			if m.state != stateQuickCapture && m.state != stateTaskForm && !m.isFiltering() {
+			if m.state != stateQuickCapture && m.state != stateTaskForm && m.state != stateFormSelect && !m.isFiltering() {
 				m.openQuickCapture()
 				return m, nil
 			}
 		case "ctrl+f":
-			if m.state != stateSearch && m.state != stateQuickCapture && m.state != stateSnooze && m.state != stateTaskForm && !m.isFiltering() {
+			if m.state != stateSearch && m.state != stateQuickCapture && m.state != stateSnooze && m.state != stateTaskForm && m.state != stateFormSelect && !m.isFiltering() {
 				m.openSearch()
 				return m, nil
 			}
@@ -275,6 +292,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				default:
 					m.state = stateMenu
 				}
+				return m, nil
+			case stateFormSelect:
+				m.state = stateTaskForm
+				m.formInputs[m.formSelectStep].Focus()
 				return m, nil
 			case stateQuickCapture:
 				m.restoreFromQuickCapture()
@@ -342,6 +363,29 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tasksList = newTasksListModel(msg.items, m.listName)
 		m.setSizes()
+		return m, nil
+	case formSelectItemsMsg:
+		m.formSelectBusy = false
+		if msg.err != nil {
+			m.status = msg.err.Error()
+			return m, nil
+		}
+		m.formSelectMode = msg.mode
+		m.formSelect = newFormSelect(msg.items, formSelectTitle(msg.mode))
+		m.setSizes()
+		current := ""
+		if m.formSelectMode == formSelectList {
+			current = strings.TrimSpace(m.formInputs[0].Value())
+			if current == "" {
+				current = m.app.Config.DefaultList
+			}
+		} else {
+			current = strings.TrimSpace(m.formInputs[2].Value())
+			if current == "" {
+				current = noSectionLabel
+			}
+		}
+		selectListItem(&m.formSelect, current)
 		return m, nil
 	case okMsg, errMsg, weekDataMsg, calendarListMsg, taskToggleMsg:
 		return m.handleMessage(msg)
@@ -596,6 +640,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "n":
 				m.openTaskForm(m.app.Config.DefaultList, time.Now().In(m.app.Location))
+			case "r":
+				nextModel, nextCmd := m.startNextLoad()
+				return nextModel, nextCmd
 			}
 		}
 		return m, cmd
@@ -666,6 +713,10 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
+			case "ctrl+l":
+				return m.openFormSelect(formSelectList)
+			case "ctrl+s":
+				return m.openFormSelect(formSelectSection)
 			case "tab":
 				m.formInputs[m.formStep].Blur()
 				m.formStep = (m.formStep + 1) % len(m.formInputs)
@@ -705,6 +756,39 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.formInputs[m.formStep], cmd = m.formInputs[m.formStep].Update(msg)
+		return m, cmd
+	case stateFormSelect:
+		var cmd tea.Cmd
+		m.formSelect, cmd = m.formSelect.Update(msg)
+		if key, ok := msg.(tea.KeyMsg); ok {
+			switch key.String() {
+			case "enter":
+				if m.formSelectBusy {
+					return m, nil
+				}
+				value := ""
+				switch item := m.formSelect.SelectedItem().(type) {
+				case listItem:
+					value = string(item)
+				}
+				if m.formSelectMode == formSelectSection && value == noSectionLabel {
+					value = ""
+				}
+				if m.formSelectStep >= 0 && m.formSelectStep < len(m.formInputs) {
+					prev := m.formInputs[m.formSelectStep].Value()
+					m.formInputs[m.formSelectStep].SetValue(value)
+					if m.formSelectMode == formSelectList && strings.TrimSpace(value) != strings.TrimSpace(prev) {
+						if len(m.formInputs) > 2 {
+							m.formInputs[2].SetValue("")
+						}
+					}
+					m.formStep = m.formSelectStep
+					m.formInputs[m.formSelectStep].Focus()
+				}
+				m.state = stateTaskForm
+				return m, nil
+			}
+		}
 		return m, cmd
 	case stateConfirmDelete:
 		if key, ok := msg.(tea.KeyMsg); ok {
@@ -748,6 +832,10 @@ func (m tuiModel) View() string {
 	if m.status != "" {
 		status = "\n\n" + renderStatus(m.status)
 	}
+	contentWidth := m.winW - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
 
 	switch m.state {
 	case stateMenu:
@@ -757,15 +845,15 @@ func (m tuiModel) View() string {
 		if m.weekRefreshing {
 			hint += " • refreshing…"
 		}
-		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(hint) + status)
+		return padding.Render(renderHeader("Week") + "\n\n" + m.weekView() + "\n\n" + gray(wrapText(hint, contentWidth)) + status)
 	case stateTodayTasks:
-		hint := "space: done • e: edit • s: snooze • d: delete • n: new task • b: backlog • ctrl+n: capture • esc: back"
+		hint := "space: done • e: edit • s: snooze • d: delete • n: new task • b: backlog • r: refresh • ctrl+n: capture • esc: back"
 		if m.nextLoading {
 			hint += " • loading…"
 		}
-		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray(hint) + status)
+		return padding.Render(renderHeader("Next") + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray(wrapText(hint, contentWidth)) + status)
 	case stateAgendaDetails:
-		return padding.Render(renderHeader("Schedule") + "\n\n" + m.viewport.View() + "\n\n" + gray("esc: back") + status)
+		return padding.Render(renderHeader("Schedule") + "\n\n" + m.viewport.View() + "\n\n" + gray(wrapText("esc: back", contentWidth)) + status)
 	case stateListSelect:
 		return padding.Render(renderHeader("Select a list") + "\n\n" + m.listSelect.View() + status)
 	case stateListTasks:
@@ -773,18 +861,21 @@ func (m tuiModel) View() string {
 		if m.listLoading {
 			hint += " • loading…"
 		}
-		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray(hint) + status)
+		return padding.Render(renderHeader(m.listName) + "\n\n" + m.splitPane(m.tasksList.View(), m.detailsView()) + "\n\n" + gray(wrapText(hint, contentWidth)) + status)
 	case stateNewTaskList:
 		return padding.Render(renderHeader("Choose list") + "\n\n" + m.listSelect.View() + status)
 	case stateTaskForm:
 		return padding.Render(renderForm(m.formInputs, m.formStep, m.formMode) + status)
+	case stateFormSelect:
+		title := formSelectTitle(m.formSelectMode)
+		return padding.Render(renderHeader(title) + "\n\n" + m.formSelect.View() + "\n\n" + gray(wrapText("enter: select • esc: back", contentWidth)) + status)
 	case stateConfirmDelete:
-		return padding.Render(renderHeader("Confirm delete") + "\n\n" + m.confirmMsg + "\n\n" + gray("y: delete • n: cancel"))
+		return padding.Render(renderHeader("Confirm delete") + "\n\n" + m.confirmMsg + "\n\n" + gray(wrapText("y: delete • n: cancel", contentWidth)))
 	case stateCalendarSelect:
 		if m.calendarLoading {
 			return padding.Render(renderHeader("Calendars") + "\n\n" + "Loading calendars..." + status)
 		}
-		return padding.Render(renderHeader("View calendars") + "\n\n" + m.calendarSelect.View() + "\n\n" + gray("space: toggle • enter: save • esc: back") + status)
+		return padding.Render(renderHeader("View calendars") + "\n\n" + m.calendarSelect.View() + "\n\n" + gray(wrapText("space: toggle • enter: save • esc: back", contentWidth)) + status)
 	case stateQuickCapture:
 		input := m.quickInput.View()
 		if strings.TrimSpace(input) == "" {
@@ -794,7 +885,7 @@ func (m tuiModel) View() string {
 			"#List  ::Section  @date  @time  every:weekly",
 			"Example: Call John #Work ::❤️ Current @tomorrow @15:00-16:00 every:weekly",
 		}
-		return padding.Render(renderHeader("Quick capture") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray("enter: save • esc: cancel"))
+		return padding.Render(renderHeader("Quick capture") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray(wrapText("enter: save • esc: cancel", contentWidth)))
 	case stateSnooze:
 		input := m.snoozeInput.View()
 		if strings.TrimSpace(input) == "" {
@@ -803,7 +894,7 @@ func (m tuiModel) View() string {
 		legend := []string{
 			"Examples: tomorrow • next monday • 15:00-16:00 • 1h",
 		}
-		return padding.Render(renderHeader("Snooze") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray("enter: save • esc: cancel"))
+		return padding.Render(renderHeader("Snooze") + "\n\n" + input + "\n\n" + gray(strings.Join(legend, "\n")) + "\n\n" + gray(wrapText("enter: save • esc: cancel", contentWidth)))
 	case stateSearch:
 		input := m.searchInput.View()
 		if strings.TrimSpace(input) == "" {
@@ -826,7 +917,7 @@ func (m tuiModel) View() string {
 		if m.searchFocus == focusSearchList {
 			hint = "tab: search • space: done • e/enter: edit • s: snooze • d: delete • l: list • a: completed • esc: back • ctrl+n: capture"
 		}
-		return padding.Render(renderHeader("Search") + "\n\n" + input + "\n" + gray(filters) + "\n\n" + body + "\n\n" + gray(hint) + status)
+		return padding.Render(renderHeader("Search") + "\n\n" + input + "\n" + gray(filters) + "\n\n" + body + "\n\n" + gray(wrapText(hint, contentWidth)) + status)
 	default:
 		return ""
 	}
@@ -974,6 +1065,8 @@ func (m tuiModel) isFiltering() bool {
 		return m.listSelect.FilterState() == list.Filtering
 	case stateListTasks, stateTodayTasks, stateSearch:
 		return m.tasksList.FilterState() == list.Filtering
+	case stateFormSelect:
+		return m.formSelect.FilterState() == list.Filtering
 	default:
 		return false
 	}
@@ -1081,6 +1174,45 @@ func newListSelect(app *App) list.Model {
 	model.SetShowHelp(true)
 	model.KeyMap.Quit.SetEnabled(false)
 	return styleList(model)
+}
+
+func newFormSelect(items []list.Item, title string) list.Model {
+	model := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	model.Title = title
+	model.SetShowStatusBar(false)
+	model.SetFilteringEnabled(true)
+	model.SetShowHelp(true)
+	model.KeyMap.Quit.SetEnabled(false)
+	return styleList(model)
+}
+
+func formSelectTitle(mode formSelectMode) string {
+	switch mode {
+	case formSelectSection:
+		return "Select section"
+	default:
+		return "Select list"
+	}
+}
+
+func selectListItem(model *list.Model, value string) {
+	if model == nil {
+		return
+	}
+	items := model.Items()
+	if len(items) == 0 {
+		return
+	}
+	for i, item := range items {
+		switch v := item.(type) {
+		case listItem:
+			if strings.EqualFold(string(v), value) {
+				model.Select(i)
+				return
+			}
+		}
+	}
+	setInitialListIndex(model, items)
 }
 
 func newTasksListModel(items []list.Item, title string) list.Model {
@@ -1197,7 +1329,7 @@ func renderForm(inputs []textinput.Model, step int, mode formMode) string {
 		b.WriteString(fmt.Sprintf("%s %s: %s\n", cursor, labels[i], input.View()))
 	}
 	b.WriteString("\n")
-	b.WriteString(gray("tab/shift+tab: navigate • enter: save • esc: cancel • ctrl+u: clear"))
+	b.WriteString(gray("tab/shift+tab: navigate • enter: save • esc: cancel • ctrl+u: clear • ctrl+l: lists • ctrl+s: sections"))
 	return b.String()
 }
 
@@ -1305,6 +1437,12 @@ type errMsg struct{ err error }
 type taskToggleMsg struct {
 	TaskID    string
 	Completed bool
+}
+
+type formSelectItemsMsg struct {
+	mode  formSelectMode
+	items []list.Item
+	err   error
 }
 
 type nextItemsMsg struct {
@@ -1644,6 +1782,99 @@ func (m *tuiModel) openTaskForm(listName string, dateHint time.Time) {
 		m.formInputs[3].SetValue(dateHint.Format("2006-01-02"))
 	}
 	m.formInputs[1].Focus()
+}
+
+func (m *tuiModel) openFormSelect(mode formSelectMode) (tuiModel, tea.Cmd) {
+	m.formSelectMode = mode
+	m.formSelectBusy = false
+	switch mode {
+	case formSelectSection:
+		m.formSelectStep = 2
+		listName := m.formListName()
+		if listName == "" {
+			m.status = "Select a list first"
+			return *m, nil
+		}
+		m.state = stateFormSelect
+		m.formSelectBusy = true
+		m.formSelect = newFormSelect([]list.Item{listItem("Loading...")}, formSelectTitle(mode))
+		m.setSizes()
+		return *m, m.loadFormSectionsCmd(listName)
+	default:
+		m.formSelectStep = 0
+		items := buildFormListItems(m.app)
+		m.formSelect = newFormSelect(items, formSelectTitle(mode))
+		m.state = stateFormSelect
+		m.setSizes()
+		current := strings.TrimSpace(m.formInputs[0].Value())
+		if current == "" && m.app != nil && m.app.Config != nil {
+			current = m.app.Config.DefaultList
+		}
+		selectListItem(&m.formSelect, current)
+		return *m, nil
+	}
+}
+
+func (m *tuiModel) formListName() string {
+	if len(m.formInputs) > 0 {
+		if value := strings.TrimSpace(m.formInputs[0].Value()); value != "" {
+			return value
+		}
+	}
+	if strings.TrimSpace(m.listName) != "" {
+		return m.listName
+	}
+	if m.app != nil && m.app.Config != nil {
+		return m.app.Config.DefaultList
+	}
+	return ""
+}
+
+func (m *tuiModel) loadFormSectionsCmd(listName string) tea.Cmd {
+	return func() tea.Msg {
+		listID, err := resolveListID(m.app, listName, listName != "")
+		if err != nil {
+			return formSelectItemsMsg{mode: formSelectSection, err: err}
+		}
+		items, err := m.app.Tasks.ListTasks(listID, false)
+		if err != nil {
+			return formSelectItemsMsg{mode: formSelectSection, err: err}
+		}
+		return formSelectItemsMsg{mode: formSelectSection, items: buildFormSectionItems(items)}
+	}
+}
+
+func buildFormListItems(app *App) []list.Item {
+	if app == nil || app.Config == nil {
+		return []list.Item{listItem("(no lists configured)")}
+	}
+	names := sortedListNames(app.Config.Lists)
+	result := make([]list.Item, 0, len(names))
+	for _, name := range names {
+		result = append(result, listItem(name))
+	}
+	if len(result) == 0 {
+		result = append(result, listItem("(no lists configured)"))
+	}
+	return result
+}
+
+func buildFormSectionItems(items []*tasks.Task) []list.Item {
+	sections := buildSectionIndex(items)
+	names := make([]string, 0, len(sections))
+	for _, name := range sections {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	result := make([]list.Item, 0, len(names)+1)
+	result = append(result, listItem(noSectionLabel))
+	for _, name := range names {
+		result = append(result, listItem(name))
+	}
+	return result
 }
 
 func (m *tuiModel) deleteTaskCmd() tea.Cmd {
