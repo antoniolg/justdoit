@@ -27,6 +27,7 @@ func newListCmd() *cobra.Command {
 		list    string
 		section string
 		all     bool
+		ids     bool
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -57,7 +58,7 @@ func newListCmd() *cobra.Command {
 					continue
 				}
 				fmt.Printf("\n%s\n", name)
-				printTasks(tasks)
+				printTasks(tasks, ids)
 			}
 			return nil
 		},
@@ -65,6 +66,7 @@ func newListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&list, "list", "", "List name (mapped via config.json)")
 	cmd.Flags().StringVar(&section, "section", "", "Filter by section name")
 	cmd.Flags().BoolVar(&all, "all", false, "Include completed/hidden tasks")
+	cmd.Flags().BoolVar(&ids, "ids", false, "Show task IDs")
 	return cmd
 }
 
@@ -108,7 +110,7 @@ func groupTasksBySection(items []*tasks.Task, filter string, loc *time.Location)
 	return sections, order
 }
 
-func printTasks(tasks []taskRow) {
+func printTasks(tasks []taskRow, showIDs bool) {
 	due := make([]taskRow, 0, len(tasks))
 	noDue := make([]taskRow, 0, len(tasks))
 	for _, t := range tasks {
@@ -131,7 +133,11 @@ func printTasks(tasks []taskRow) {
 		if t.HasDue {
 			dueText = fmt.Sprintf(" (due %s)", t.Due.Format("2006-01-02"))
 		}
+		idText := ""
+		if showIDs {
+			idText = fmt.Sprintf(" [id: %s]", t.ID)
+		}
 		title := recurringTitle(t.Title, t.Recurrence)
-		fmt.Printf("- %s%s\n", title, dueText)
+		fmt.Printf("- %s%s%s\n", title, dueText, idText)
 	}
 }

@@ -11,6 +11,7 @@ func newSearchCmd() *cobra.Command {
 	var (
 		list string
 		all  bool
+		ids  bool
 	)
 	cmd := &cobra.Command{
 		Use:   "search [query]",
@@ -30,16 +31,17 @@ func newSearchCmd() *cobra.Command {
 				fmt.Println("(no results)")
 				return nil
 			}
-			printSearchResults(results, list == "")
+			printSearchResults(results, list == "", ids)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&list, "list", "", "List name (mapped via config.json)")
 	cmd.Flags().BoolVar(&all, "all", false, "Include completed/hidden tasks")
+	cmd.Flags().BoolVar(&ids, "ids", false, "Show task IDs")
 	return cmd
 }
 
-func printSearchResults(results []taskItem, showList bool) {
+func printSearchResults(results []taskItem, showList bool, showIDs bool) {
 	for _, item := range results {
 		title := recurringTitle(item.TitleVal, item.Recurrence)
 		contextParts := []string{}
@@ -53,10 +55,14 @@ func printSearchResults(results []taskItem, showList bool) {
 		if len(contextParts) > 0 {
 			context = " (" + strings.Join(contextParts, " / ") + ")"
 		}
+		idText := ""
+		if showIDs {
+			idText = fmt.Sprintf(" [id: %s]", item.ID)
+		}
 		dueText := ""
 		if item.HasDue {
 			dueText = fmt.Sprintf(" (due %s)", item.Due.Format("2006-01-02"))
 		}
-		fmt.Printf("- %s%s%s\n", title, context, dueText)
+		fmt.Printf("- %s%s%s%s\n", title, context, dueText, idText)
 	}
 }
