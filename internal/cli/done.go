@@ -57,7 +57,7 @@ func newDoneCmd() *cobra.Command {
 			if len(args) == 1 {
 				taskID = args[0]
 			} else {
-				resolved, err := resolveTaskIDByTitleInteractive(app, listID, strings.TrimSpace(title), strings.TrimSpace(section))
+				resolved, err := resolveTaskIDByTitleInteractiveWithOptions(app, listID, strings.TrimSpace(title), strings.TrimSpace(section), false)
 				if err != nil {
 					return err
 				}
@@ -83,8 +83,8 @@ func newDoneCmd() *cobra.Command {
 	return cmd
 }
 
-func resolveTaskIDByTitleInteractive(app *App, listID, title, section string) (string, error) {
-	matches, err := findTasksByExactTitle(app, listID, title, section)
+func resolveTaskIDByTitleInteractiveWithOptions(app *App, listID, title, section string, includeCompleted bool) (string, error) {
+	matches, err := findTasksByExactTitle(app, listID, title, section, includeCompleted)
 	if err != nil {
 		return "", err
 	}
@@ -142,8 +142,8 @@ func resolveTaskIDByTitleInteractive(app *App, listID, title, section string) (s
 	}
 }
 
-func findTasksByExactTitle(app *App, listID, title, section string) ([]taskTitleMatch, error) {
-	items, err := app.Tasks.ListTasksWithOptions(listID, false, false, false, "")
+func findTasksByExactTitle(app *App, listID, title, section string, includeCompleted bool) ([]taskTitleMatch, error) {
+	items, err := app.Tasks.ListTasksWithOptions(listID, includeCompleted, false, false, "")
 	if err != nil {
 		return nil, err
 	}

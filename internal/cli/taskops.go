@@ -171,6 +171,20 @@ func markTaskDone(app *App, listID, taskID string, markEvent bool) error {
 	return createNextRecurringTask(app, listID, task, event)
 }
 
+func markTaskUndone(app *App, listID, taskID string, markEvent bool) error {
+	task, err := app.Tasks.GetTask(listID, taskID)
+	if err != nil {
+		return err
+	}
+	if _, err := app.Tasks.UncompleteTask(listID, taskID); err != nil {
+		return err
+	}
+	if !markEvent {
+		return nil
+	}
+	return updateLinkedEventPrefix(app, task, false)
+}
+
 func deleteTask(app *App, listID, taskID string, deleteEvent bool) error {
 	task, err := app.Tasks.GetTask(listID, taskID)
 	if err != nil {
