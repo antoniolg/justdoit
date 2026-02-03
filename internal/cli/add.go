@@ -52,7 +52,7 @@ func newAddCmd() *cobra.Command {
 				}
 				parentID = sectionTask.Id
 			}
-			baseDate, err := timeparse.ParseDate(dateStr, app.Now, app.Location)
+			baseDate, err := timeparse.ParseDate(dateStr, app.Now(), app.Location)
 			if err != nil {
 				return err
 			}
@@ -67,7 +67,7 @@ func newAddCmd() *cobra.Command {
 			var start *time.Time
 			var end *time.Time
 			if timeStr != "" {
-				startTime, endTime, err := timeparse.ParseTimeRange(timeStr, baseDate, app.Now, app.Location)
+				startTime, endTime, err := timeparse.ParseTimeRange(timeStr, baseDate, app.Now(), app.Location)
 				if err != nil {
 					return err
 				}
@@ -79,7 +79,7 @@ func newAddCmd() *cobra.Command {
 				due = &endOfDay
 			}
 			if due == nil && len(recurrence) > 0 {
-				today := app.Now.In(app.Location)
+				today := app.Now()
 				endOfDay := time.Date(today.Year(), today.Month(), today.Day(), 23, 59, 0, 0, app.Location)
 				due = &endOfDay
 			}

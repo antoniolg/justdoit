@@ -415,7 +415,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.weekEventIndex = -1
 				m.weekAllDayIndex = -1
 				m.weekLoading = true
-				return m, m.loadWeekDataCmd(m.app.Now)
+				return m, m.loadWeekDataCmd(m.app.Now())
 			case "Lists":
 				m.state = stateListSelect
 				m.listSelect = newListSelect(m.app)
@@ -479,7 +479,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "t":
 				m.weekDayIndex = -1
 				m.weekLoading = true
-				return m, m.loadWeekDataCmd(m.app.Now)
+				return m, m.loadWeekDataCmd(m.app.Now())
 			}
 		}
 		return m, nil
@@ -1362,7 +1362,7 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 			parentID = sectionTask.Id
 		}
 
-		baseDate, err := timeparse.ParseDate(strings.TrimSpace(m.formInputs[3].Value()), m.app.Now, m.app.Location)
+		baseDate, err := timeparse.ParseDate(strings.TrimSpace(m.formInputs[3].Value()), m.app.Now(), m.app.Location)
 		if err != nil {
 			return errMsg{err: err}
 		}
@@ -1370,7 +1370,7 @@ func (m tuiModel) createTaskCmd() tea.Cmd {
 		var end *time.Time
 		var due *time.Time
 		if strings.TrimSpace(m.formInputs[4].Value()) != "" {
-			startTime, endTime, err := timeparse.ParseTimeRange(strings.TrimSpace(m.formInputs[4].Value()), baseDate, m.app.Now, m.app.Location)
+			startTime, endTime, err := timeparse.ParseTimeRange(strings.TrimSpace(m.formInputs[4].Value()), baseDate, m.app.Now(), m.app.Location)
 			if err != nil {
 				return errMsg{err: err}
 			}
@@ -1548,7 +1548,7 @@ func (m tuiModel) handleMessage(msg tea.Msg) (tuiModel, tea.Cmd) {
 		m.weekLoading = false
 		m.weekRefreshing = msg.fromCache
 		if m.weekDayIndex < 0 || m.weekDayIndex > 6 {
-			idx := dayIndex(msg.data.Days, m.app.Now)
+			idx := dayIndex(msg.data.Days, m.app.Now())
 			if idx < 0 {
 				idx = 0
 			}

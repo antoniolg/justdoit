@@ -86,7 +86,7 @@ func updateTaskWithParams(app *App, listID, taskID string, params UpdateParams) 
 	if params.HasTime || params.HasDate {
 		baseDate := resolveBaseDate(app, task, event, params.Date)
 		if params.HasTime {
-			start, end, err := timeparse.ParseTimeRange(params.Time, baseDate, app.Now, app.Location)
+			start, end, err := timeparse.ParseTimeRange(params.Time, baseDate, app.Now(), app.Location)
 			if err != nil {
 				return result, err
 			}
@@ -285,7 +285,7 @@ func createNextRecurringTask(app *App, listID string, task *tasks.Task, event *c
 	}
 
 	baseStart, duration := taskTiming(app, task, event)
-	nextStart, ok, err := recurrence.NextOccurrence(rule, baseStart, app.Now, app.Location)
+	nextStart, ok, err := recurrence.NextOccurrence(rule, baseStart, app.Now(), app.Location)
 	if err != nil || !ok || nextStart.IsZero() {
 		return err
 	}

@@ -25,7 +25,7 @@ var (
 
 func (m tuiModel) snoozeCmd(task taskItem, input string) tea.Cmd {
 	return func() tea.Msg {
-		params, err := parseSnoozeInput(input, m.app.Now, m.app.Location)
+		params, err := parseSnoozeInput(input, m.app.Now(), m.app.Location)
 		if err != nil {
 			return snoozeMsg{err: err}
 		}

@@ -24,7 +24,12 @@ type App struct {
 	Calendar   *calendar.Client
 	Sync       *sync.Wrapper
 	Location   *time.Location
-	Now        time.Time
+}
+
+// Now returns the current time in the app's configured location.
+// Always use this instead of caching time at startup.
+func (a *App) Now() time.Time {
+	return time.Now().In(a.Location)
 }
 
 func NewRootCmd() *cobra.Command {
@@ -117,7 +122,6 @@ func initApp(cmd *cobra.Command) (*App, error) {
 		Calendar:   calendarClient,
 		Sync:       syncer,
 		Location:   loc,
-		Now:        time.Now().In(loc),
 	}, nil
 }
 

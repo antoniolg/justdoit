@@ -27,7 +27,7 @@ type quickCaptureInput struct {
 
 func (m tuiModel) quickCaptureCmd(line string) tea.Cmd {
 	return func() tea.Msg {
-		err := createFromQuickCapture(m.app, line, m.app.Now, m.app.Location)
+		err := createFromQuickCapture(m.app, line, m.app.Now(), m.app.Location)
 		return quickCaptureMsg{err: err}
 	}
 }

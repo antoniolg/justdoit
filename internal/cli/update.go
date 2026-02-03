@@ -124,7 +124,7 @@ func createLinkedEvent(app *App, task *tasks.Task, start, end *time.Time) (*cale
 
 func resolveBaseDate(app *App, task *tasks.Task, event *calendar.Event, dateStr string) time.Time {
 	if dateStr != "" {
-		baseDate, err := timeparse.ParseDate(dateStr, app.Now, app.Location)
+		baseDate, err := timeparse.ParseDate(dateStr, app.Now(), app.Location)
 		if err == nil && !baseDate.IsZero() {
 			return baseDate
 		}
@@ -140,7 +140,8 @@ func resolveBaseDate(app *App, task *tasks.Task, event *calendar.Event, dateStr 
 			return time.Date(due.In(app.Location).Year(), due.In(app.Location).Month(), due.In(app.Location).Day(), 0, 0, 0, 0, app.Location)
 		}
 	}
-	return time.Date(app.Now.Year(), app.Now.Month(), app.Now.Day(), 0, 0, 0, 0, app.Location)
+	now := app.Now()
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, app.Location)
 }
 
 func eventTimes(event *calendar.Event, loc *time.Location) (time.Time, time.Time) {

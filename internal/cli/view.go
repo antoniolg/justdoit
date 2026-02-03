@@ -109,17 +109,18 @@ func buildDayTextWithError(app *App, day time.Time) (string, error) {
 }
 
 func parseDateRange(dateStr string, app *App) (time.Time, time.Time, error) {
+	now := app.Now()
 	if strings.TrimSpace(dateStr) == "" {
-		day := time.Date(app.Now.Year(), app.Now.Month(), app.Now.Day(), 0, 0, 0, 0, app.Location)
+		day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, app.Location)
 		return day, day, nil
 	}
 	parts := strings.Split(dateStr, "..")
 	if len(parts) == 2 {
-		start, err := timeparse.ParseDate(strings.TrimSpace(parts[0]), app.Now, app.Location)
+		start, err := timeparse.ParseDate(strings.TrimSpace(parts[0]), now, app.Location)
 		if err != nil || start.IsZero() {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid start date")
 		}
-		end, err := timeparse.ParseDate(strings.TrimSpace(parts[1]), app.Now, app.Location)
+		end, err := timeparse.ParseDate(strings.TrimSpace(parts[1]), now, app.Location)
 		if err != nil || end.IsZero() {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid end date")
 		}
@@ -128,7 +129,7 @@ func parseDateRange(dateStr string, app *App) (time.Time, time.Time, error) {
 		}
 		return start, end, nil
 	}
-	day, err := timeparse.ParseDate(dateStr, app.Now, app.Location)
+	day, err := timeparse.ParseDate(dateStr, now, app.Location)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}

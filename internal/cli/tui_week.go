@@ -181,7 +181,7 @@ func (m *tuiModel) weekAnchor() time.Time {
 	if !m.weekData.WeekStart.IsZero() {
 		return m.weekData.WeekStart
 	}
-	return m.app.Now
+	return m.app.Now()
 }
 
 func (m *tuiModel) shiftWeekDay(delta int) tea.Cmd {
@@ -496,7 +496,7 @@ func (m *tuiModel) weekContentHeight(maxHeight int) int {
 func (m *tuiModel) weekTimeRows() int {
 	startHour, endHour := 9, 18
 	if m.app != nil {
-		base := m.app.Now
+		base := m.app.Now()
 		if clock, err := timeparse.ParseClock(m.app.Config.WorkdayStart, base, m.app.Location); err == nil {
 			startHour = clock.Hour()
 		}
@@ -591,7 +591,7 @@ func (m *tuiModel) renderWeekGrid(width, height int) string {
 	slots := 24
 	selectedSlot := 9
 	if m.app != nil {
-		if base := m.app.Now; !base.IsZero() {
+		if base := m.app.Now(); !base.IsZero() {
 			if clock, err := timeparse.ParseClock(m.app.Config.WorkdayStart, base, m.app.Location); err == nil {
 				if clock.Hour() >= 0 && clock.Hour() < slots {
 					selectedSlot = clock.Hour()
