@@ -1220,9 +1220,13 @@ func newTasksListModel(items []list.Item, title string) list.Model {
 	model := list.New(items, list.NewDefaultDelegate(), 0, 0)
 	model.Title = title
 	model.SetShowStatusBar(false)
-	model.SetFilteringEnabled(true)
+	model.SetFilteringEnabled(false)
 	model.SetShowHelp(false)
 	model.KeyMap.Quit.SetEnabled(false)
+	// Unbind keys that conflict with task actions (d=delete, b=backlog, s=snooze, e/n=edit/new).
+	// Default bubbles keymap binds d/f to NextPage and b to PrevPage.
+	model.KeyMap.NextPage.SetKeys("right", "l", "pgdown")
+	model.KeyMap.PrevPage.SetKeys("left", "h", "pgup")
 	model = styleList(model)
 	setInitialListIndex(&model, items)
 	return model
