@@ -76,7 +76,7 @@ func buildDayTextWithError(app *App, day time.Time) (string, error) {
 	free := agenda.FreeSlots(events, dayStart, dayEnd)
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("Schedule for %s\n", day.Format("2006-01-02")))
+	fmt.Fprintf(&b, "Schedule for %s\n", day.Format("2006-01-02"))
 	b.WriteString("\nCalendar events:\n")
 	if len(events) == 0 {
 		b.WriteString("- (none)\n")
@@ -92,7 +92,7 @@ func buildDayTextWithError(app *App, day time.Time) (string, error) {
 	} else {
 		sort.Slice(tasksToday, func(i, j int) bool { return tasksToday[i].Title < tasksToday[j].Title })
 		for _, t := range tasksToday {
-			b.WriteString(fmt.Sprintf("- [%s] %s (%s)\n", t.List, t.Title, t.ID))
+			fmt.Fprintf(&b, "- [%s] %s (%s)\n", t.List, t.Title, t.ID)
 		}
 	}
 
@@ -101,7 +101,7 @@ func buildDayTextWithError(app *App, day time.Time) (string, error) {
 		b.WriteString("- (none)\n")
 	} else {
 		for _, slot := range free {
-			b.WriteString(fmt.Sprintf("- %s - %s\n", slot.Start.Format("15:04"), slot.End.Format("15:04")))
+			fmt.Fprintf(&b, "- %s - %s\n", slot.Start.Format("15:04"), slot.End.Format("15:04"))
 		}
 	}
 

@@ -1331,7 +1331,7 @@ func renderForm(inputs []textinput.Model, step int, mode formMode) string {
 		if i == step {
 			cursor = "▶"
 		}
-		b.WriteString(fmt.Sprintf("%s %s: %s\n", cursor, labels[i], input.View()))
+		fmt.Fprintf(&b, "%s %s: %s\n", cursor, labels[i], input.View())
 	}
 	b.WriteString("\n")
 	b.WriteString(gray("tab/shift+tab: navigate • enter: save • esc: cancel • ctrl+u: clear • ctrl+l: lists • ctrl+s: sections"))

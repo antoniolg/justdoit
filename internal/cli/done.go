@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -98,7 +99,11 @@ func resolveTaskIDByTitleInteractiveWithOptions(app *App, listID, title, section
 		return matches[0].ID, nil
 	}
 
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	fd := os.Stdin.Fd()
+	if fd > math.MaxInt {
+		return "", fmt.Errorf("stdin file descriptor is too large to inspect: %d", fd)
+	}
+	if !term.IsTerminal(int(fd)) {
 		ids := make([]string, 0, len(matches))
 		for _, m := range matches {
 			ids = append(ids, m.ID)

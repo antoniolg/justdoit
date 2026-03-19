@@ -149,5 +149,6 @@ func saveToken(path string, token *oauth2.Token) error {
 		return err
 	}
 	defer func() { _ = file.Close() }()
+	// #nosec G117 -- writing the OAuth token to a 0600 file is the intended behavior here.
 	return json.NewEncoder(file).Encode(token)
 }
