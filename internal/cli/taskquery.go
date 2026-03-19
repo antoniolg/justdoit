@@ -24,12 +24,13 @@ type CalendarProvider interface {
 }
 
 type queryContext struct {
-	Tasks         TaskProvider
-	Calendar      CalendarProvider
-	Lists         map[string]string
-	ViewCalendars []string
-	Location      *time.Location
-	Now           func() time.Time
+	Tasks                TaskProvider
+	Calendar             CalendarProvider
+	Lists                map[string]string
+	ViewCalendars        []string
+	BacklogExcludedLists []string
+	Location             *time.Location
+	Now                  func() time.Time
 }
 
 func newQueryContext(app *App) queryContext {
@@ -43,12 +44,13 @@ func newQueryContext(app *App) queryContext {
 		return queryContext{Now: now}
 	}
 	return queryContext{
-		Tasks:         app.Tasks,
-		Calendar:      app.Calendar,
-		Lists:         app.Config.Lists,
-		ViewCalendars: app.Config.ViewCalendars,
-		Location:      app.Location,
-		Now:           now,
+		Tasks:                app.Tasks,
+		Calendar:             app.Calendar,
+		Lists:                app.Config.Lists,
+		ViewCalendars:        app.Config.ViewCalendars,
+		BacklogExcludedLists: app.Config.BacklogExcludedLists,
+		Location:             app.Location,
+		Now:                  now,
 	}
 }
 
@@ -142,7 +144,7 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 			}
 			section := resolveSectionName(item, sections)
 			if item.Due == "" {
-				if showBacklog {
+				if showBacklog && !isBacklogExcludedList(listName, ctx.BacklogExcludedLists) {
 					rule, _ := metadata.Extract(item.Notes, "justdoit_rrule")
 					backlog = append(backlog, taskItem{
 						ID:         item.Id,
@@ -271,6 +273,15 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 		}
 	}
 	return items, nil
+}
+
+func isBacklogExcludedList(listName string, excluded []string) bool {
+	for _, name := range excluded {
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(listName)) {
+			return true
+		}
+	}
+	return false
 }
 
 func searchTasks(ctx queryContext, query, listFilter string, includeCompleted bool) ([]taskItem, error) {

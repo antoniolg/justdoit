@@ -77,6 +77,70 @@ func TestBuildNextItemsBuckets(t *testing.T) {
 	}
 }
 
+func TestBuildNextItemsExcludesConfiguredListsFromBacklog(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 1, 3, 10, 0, 0, 0, loc)
+	workListID := "list-work"
+	giftsListID := "list-gifts"
+
+	ctx := queryContext{
+		Tasks: fakeTaskProvider{lists: map[string][]*tasks.Task{
+			workListID: {
+				{Id: "1", Title: "Plan sprint", Status: "needsAction"},
+			},
+			giftsListID: {
+				{Id: "2", Title: "Gift ideas", Status: "needsAction"},
+				{Id: "3", Title: "Buy present", Status: "needsAction", Due: time.Date(2026, 1, 4, 12, 0, 0, 0, loc).Format(time.RFC3339)},
+			},
+		}},
+		Lists: map[string]string{
+			"Trabajo": workListID,
+			"Regalos": giftsListID,
+		},
+		BacklogExcludedLists: []string{"Regalos"},
+		Location:             loc,
+		Now:                  func() time.Time { return now },
+	}
+
+	got, err := buildNextItems(ctx, true)
+	if err != nil {
+		t.Fatalf("buildNextItems error: %v", err)
+	}
+
+	headers := extractHeaders(got)
+	expectedHeaders := []string{"This week", "Backlog (no date)"}
+	if !reflect.DeepEqual(headers, expectedHeaders) {
+		t.Fatalf("unexpected headers: %v", headers)
+	}
+
+	var backlogTitles []string
+	var thisWeekTitles []string
+	currentHeader := ""
+	for _, item := range got {
+		task, ok := item.(taskItem)
+		if !ok {
+			continue
+		}
+		if task.IsHeader {
+			currentHeader = task.TitleVal
+			continue
+		}
+		switch currentHeader {
+		case "Backlog (no date)":
+			backlogTitles = append(backlogTitles, task.TitleVal)
+		case "This week":
+			thisWeekTitles = append(thisWeekTitles, task.TitleVal)
+		}
+	}
+
+	if !reflect.DeepEqual(backlogTitles, []string{"Plan sprint"}) {
+		t.Fatalf("unexpected backlog titles: %v", backlogTitles)
+	}
+	if !reflect.DeepEqual(thisWeekTitles, []string{"Buy present"}) {
+		t.Fatalf("unexpected this week titles: %v", thisWeekTitles)
+	}
+}
+
 func TestSearchTasks(t *testing.T) {
 	loc := time.UTC
 	listID := "list-1"

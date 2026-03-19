@@ -116,6 +116,10 @@ justdoit section list --list "Work"
 # delete a task (and linked event)
 justdoit delete <TASK_ID>
 
+# show the "Next" view (overdue/today/this week/next week/backlog)
+justdoit next
+justdoit next --backlog=false
+
 # list tasks grouped by section
 justdoit list --list "Work"
 # include completed/hidden
@@ -183,3 +187,4 @@ Example:
 - The event stores the task ID in the description (`justdoit_task_id=...`).
 - The task stores the event ID in notes (`justdoit_event_id=...`).
 - Sections are implemented as parent tasks with `justdoit_section=1` in notes.
+- You can exclude lists from `Backlog (no date)` with `backlog_excluded_lists` in `config.json`, for example `"backlog_excluded_lists": ["Regalos"]`.
