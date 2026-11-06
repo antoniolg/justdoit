@@ -328,7 +328,10 @@ func syncCalendars(app *App, c *cache.Cache) error {
 			}
 		}
 		if err != nil {
-			return err
+			// Skip calendars that can no longer be read (deleted or unshared) instead of failing the week view.
+			delete(c.Calendars, calendarID)
+			err = nil
+			continue
 		}
 		if calCache.Events == nil {
 			calCache.Events = map[string]*calendar.Event{}

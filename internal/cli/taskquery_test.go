@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -25,9 +26,13 @@ func (f fakeTaskProvider) ListTasksWithOptions(listID string, showCompleted, sho
 type fakeCalendarProvider struct {
 	calendars []*calendar.CalendarListEntry
 	events    map[string][]*calendar.Event
+	errors    map[string]error
 }
 
 func (f fakeCalendarProvider) ListEvents(calendarID string, timeMin, timeMax string) ([]*calendar.Event, error) {
+	if err := f.errors[calendarID]; err != nil {
+		return nil, err
+	}
 	return f.events[calendarID], nil
 }
 
@@ -254,6 +259,36 @@ func TestBuildNextItemsIncludesTodayEvents(t *testing.T) {
 	}
 	if task, ok := got[todayIdx+4].(taskItem); !ok || task.TitleVal != "Timed Task" {
 		t.Fatalf("expected timed task fourth, got %#v", got[todayIdx+4])
+	}
+}
+
+func TestBuildNextItemsSkipsUnreadableCalendars(t *testing.T) {
+	loc := time.UTC
+	now := time.Date(2026, 1, 3, 10, 0, 0, 0, loc)
+	events := map[string][]*calendar.Event{
+		"ok": {{Id: "evt-1", Summary: "Standup", Start: &calendar.EventDateTime{DateTime: time.Date(2026, 1, 3, 9, 0, 0, 0, loc).Format(time.RFC3339)}, End: &calendar.EventDateTime{DateTime: time.Date(2026, 1, 3, 9, 30, 0, 0, loc).Format(time.RFC3339)}}},
+	}
+	ctx := queryContext{
+		Tasks:         fakeTaskProvider{lists: map[string][]*tasks.Task{"list-1": {}}},
+		Calendar:      fakeCalendarProvider{events: events, errors: map[string]error{"gone": errors.New("googleapi: Error 404: Not Found")}},
+		Lists:         map[string]string{"Work": "list-1"},
+		ViewCalendars: []string{"gone", "ok"},
+		Location:      loc,
+		Now:           func() time.Time { return now },
+	}
+
+	got, err := buildNextItems(ctx, false)
+	if err != nil {
+		t.Fatalf("a missing calendar must not fail the agenda: %v", err)
+	}
+	found := false
+	for _, item := range got {
+		if e, ok := item.(calendarEventItem); ok && e.Summary == "Standup" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected events from the readable calendar, got %#v", got)
 	}
 }
 

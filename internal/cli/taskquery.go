@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -84,7 +85,9 @@ func buildNextItems(ctx queryContext, showBacklog bool) ([]list.Item, error) {
 		for _, calendarID := range ctx.ViewCalendars {
 			events, err := ctx.Calendar.ListEvents(calendarID, timeMin, timeMax)
 			if err != nil {
-				return nil, err
+				// A calendar that was deleted or unshared must not hide the rest of the agenda.
+				fmt.Fprintf(os.Stderr, "warning: skipping calendar %s: %v\n", calendarID, err)
+				continue
 			}
 			for _, e := range events {
 				if e == nil || strings.EqualFold(e.Status, "cancelled") {
